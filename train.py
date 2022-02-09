@@ -2,31 +2,14 @@ import json
 import torch
 import os
 from tqdm import tqdm
-from resnet import ResNet1d
-from dataloader import ECGAgeDataset
+from src.resnet import ResNet1d
+from src.dataloader import ECGAgeDataset
 from torch.utils.data import DataLoader, random_split
 import torch.optim as optim
 import numpy as np
 from datetime import datetime
+from src.loss_functions import mse, mae
 
-
-# maybe go to mean at some point
-def compute_mse(ages, pred_ages, weights=None):
-    diff = ages.flatten() - pred_ages.flatten()
-    if torch.is_tensor(weights):
-        loss = torch.sum(weights.flatten() * diff * diff)
-    else:
-        loss = torch.sum(diff * diff)
-    return loss
-
-
-def compute_mae(ages, pred_ages, weights=None):
-    diff = ages.flatten() - pred_ages.flatten()
-    if torch.is_tensor(weights):
-        wmae = torch.sum(weights.flatten() * torch.abs(diff))
-    else:
-        wmae = torch.sum(torch.abs(diff))
-    return wmae
 
 def train(ep, dataload):
     model.train()
@@ -44,7 +27,7 @@ def train(ep, dataload):
         # Send to device
         # Forward pass
         pred_ages = model(traces)
-        loss = compute_mse(ages, pred_ages, weights)
+        loss = mse(ages, pred_ages, weights)
         # Backward pass
         loss.backward()
         # Optimize
@@ -54,8 +37,8 @@ def train(ep, dataload):
         # calculate tracking metrics
         with torch.no_grad():
             total_wmse += loss.detach().cpu().numpy()
-            total_mse += compute_mse(ages, pred_ages, weights=None).cpu().numpy()
-            total_wmae += compute_mae(ages, pred_ages, weights).cpu().numpy()
+            total_mse += mse(ages, pred_ages, weights=None).cpu().numpy()
+            total_wmae += mae(ages, pred_ages, weights).cpu().numpy()
 
         n_entries += bs
         # Update train bar
@@ -77,7 +60,7 @@ def eval(ep, dataload):
         with torch.no_grad():
             # Forward pass
             pred_ages = model(traces)
-            loss = compute_mse(ages, pred_ages, weights)
+            loss = mse(ages, pred_ages, weights)
             # Update outputs
             bs = len(traces)
             # Update ids
@@ -205,7 +188,7 @@ if __name__ == "__main__":
                                     'weighted_rmse', 'weighted_mae', 'rmse', 'mse'])
     for ep in range(start_epoch, args.epochs):
         # compute train loss and metrics
-        wmse, mse, wmae = train(ep, train_loader)
+        train_wmse, train_mse, train_wmae = train(ep, train_loader)
         valid_loss = eval(ep, valid_loader)
         # Save best model
         if valid_loss < best_loss:
@@ -226,11 +209,11 @@ if __name__ == "__main__":
         # Print message
         tqdm.write('Epoch {:2d}: \tTrain Loss {:.6f} ' \
                   '\tValid Loss {:.6f} \tLearning Rate {:.7f}\t'
-                 .format(ep, wmse, valid_loss, learning_rate))
+                 .format(ep, train_wmse, valid_loss, learning_rate))
         # Save history
-        history = history.append({"epoch": ep, "train_loss": wmse,
+        history = history.append({"epoch": ep, "train_loss": train_wmse,
                                   "valid_loss": valid_loss, "lr": learning_rate,
-                                  "weighted_rmse": np.sqrt(wmse), "weighted_mae": wmae, "rmse": np.sqrt(mse),"mse": mse},
+                                  "weighted_rmse": np.sqrt(train_wmse), "weighted_mae": train_wmae, "rmse": np.sqrt(train_mse),"mse": train_mse},
                                    ignore_index=True)
         history.to_csv(os.path.join(folder, 'history.csv'), index=False)
         # Update learning rate
