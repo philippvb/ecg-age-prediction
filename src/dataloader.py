@@ -32,7 +32,7 @@ class BatchTensors(Sequence):
         return math.ceil(sum(self.mask) / self.bs)
 
 class ECGAgeDataset(TensorDataset):
-    def __init__(self, tracing_filepath, metadata_filepath, device='cuda:0', size=1, id_key="exam_id", tracings_key="tracings", add_weights=True) -> None:
+    def __init__(self, tracing_filepath, metadata_filepath, size=1, id_key="exam_id", tracings_key="tracings", add_weights=True) -> None:
         f = h5py.File(tracing_filepath, 'r')
         dataset_crop = int(len(f[id_key]) * size) if size < 1 else -1
         exam_id = np.array(f[id_key])[:dataset_crop]
@@ -58,3 +58,13 @@ class ECGAgeDataset(TensorDataset):
             w = np.minimum(w, max_weight)
             w = len(ages) * w / sum(w)
         return w
+
+
+class GaussianNoiseECGData(TensorDataset):
+    """A Class which generates random ECG data from a Gaussian Noise distribution
+    """
+    def __init__(self, dataset_size, tracings_shape=(12, 4096), seed=123) -> None:
+        torch.manual_seed(seed)
+        tracings = torch.rand(tuple([dataset_size] + list(tracings_shape)))
+        ages = torch.rand((dataset_size, 1))
+        super().__init__(tracings, ages)
