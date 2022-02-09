@@ -1,4 +1,5 @@
 import torch.nn as nn
+import torch
 import numpy as np
 
 
@@ -145,4 +146,19 @@ class ResNet1d(nn.Module):
         # Fully conected layer
         x = self.lin(x)
         return x
+
+
+class ProbResNet1d(ResNet1d):
+    def __init__(self, input_dim, blocks_dim, kernel_size=17, dropout_rate=0.8, max_std=10):
+        super().__init__(input_dim, blocks_dim, 2, kernel_size, dropout_rate)
+        self.max_std = max_std
+
+    def forward(self, x):
+        output = super().forward(x)
+        # sigmoid to make std positive and in some scale
+        mean = output[:, 0]
+        std = torch.sigmoid(output[:, 1]) * self.max_std
+        return mean, std
+
+        
 
