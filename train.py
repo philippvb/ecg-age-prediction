@@ -131,10 +131,11 @@ if __name__ == "__main__":
                         help='path to csv file containing attributes.')
     parser.add_argument('--dataset_subset', default=0.001,
                         help='Size of the subset of dataset to take')
-    parser.add_argument('--json_config_file', default="/home/phba123/code/ecg-age-prediction/args.json")
+    parser.add_argument('--json_config_file', default=None) #"/home/phba123/code/ecg-age-prediction/args.json")
     args, unk = parser.parse_known_args()
     args = vars(args)
     if args["json_config_file"]:
+        print("use")
         with open(args["json_config_file"], "r") as f:
             default_config = json.load(f)
             default_config.update(args)
@@ -144,7 +145,7 @@ if __name__ == "__main__":
     if unk:
         warn("Unknown arguments:" + str(unk) + ".")
 
-    torch.manual_seed(args.seed)
+    torch.manual_seed(args["seed"])
     print(args)
     # Set device
     device = torch.device('cuda:' + args["gpu_id"] if torch.cuda.is_available() else 'cpu')
@@ -158,7 +159,7 @@ if __name__ == "__main__":
         json.dump(args, f, indent='\t')
 
     tqdm.write("Building data loaders...")
-    dataset = ECGAgeDataset(args["path_to_traces"], args["path_to_csv"], device=device,
+    dataset = ECGAgeDataset(args["path_to_traces"], args["path_to_csv"],
      id_key="id_exam", tracings_key="signal",
       size=args["dataset_subset"])
     train_dataset_size = int(len(dataset) * (1 - args["valid_split"]))
