@@ -129,9 +129,17 @@ if __name__ == "__main__":
                         help='path to file containing ECG traces')
     parser.add_argument('--path_to_csv', default="/home/caran948/datasets/ecg-traces/annotations.csv",
                         help='path to csv file containing attributes.')
-    parser.add_argument('--dataset_subset', default=0.01,
+    parser.add_argument('--dataset_subset', default=0.001,
                         help='Size of the subset of dataset to take')
+    parser.add_argument('--json_config_file', default="/home/phba123/code/ecg-age-prediction/args.json")
     args, unk = parser.parse_known_args()
+    args = vars(args)
+    if args["json_config_file"]:
+        with open(args["json_config_file"], "r") as f:
+            default_config = json.load(f)
+            default_config.update(args)
+            args = default_config
+
     # Check for unknown options
     if unk:
         warn("Unknown arguments:" + str(unk) + ".")
@@ -139,46 +147,46 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     print(args)
     # Set device
-    device = torch.device('cuda:' + args.gpu_id if torch.cuda.is_available() else 'cpu')
-    folder = args.folder + datetime.now().strftime("%y_%m_%d_%H_%M") + "/" # add date
+    device = torch.device('cuda:' + args["gpu_id"] if torch.cuda.is_available() else 'cpu')
+    folder = args["folder"] + datetime.now().strftime("%y_%m_%d_%H_%M") + "/" # add date
 
     # Generate output folder if needed
     if not os.path.exists(folder):
         os.makedirs(folder)
     # Save config file
     with open(os.path.join(folder, 'args.json'), 'w') as f:
-        json.dump(vars(args), f, indent='\t')
+        json.dump(args, f, indent='\t')
 
     tqdm.write("Building data loaders...")
-    dataset = ECGAgeDataset(args.path_to_traces, args.path_to_csv, device=device,
+    dataset = ECGAgeDataset(args["path_to_traces"], args["path_to_csv"], device=device,
      id_key="id_exam", tracings_key="signal",
-      size=args.dataset_subset)
-    train_dataset_size = int(len(dataset) * (1 - args.valid_split))
+      size=args["dataset_subset"])
+    train_dataset_size = int(len(dataset) * (1 - args["valid_split"]))
     train_set, valid_set = random_split(dataset, [train_dataset_size, len(dataset) - train_dataset_size])
-    train_loader = DataLoader(train_set, batch_size=args.batch_size)
-    valid_loader = DataLoader(valid_set, batch_size=args.batch_size)
+    train_loader = DataLoader(train_set, batch_size=args["batch_size"])
+    valid_loader = DataLoader(valid_set, batch_size=args["batch_size"])
 
     tqdm.write("Done!")
 
     tqdm.write("Define model...")
     N_LEADS = 12  # the 12 leads
     N_CLASSES = 1  # just the age
-    model = ResNet1d(input_dim=(N_LEADS, args.seq_length),
-                     blocks_dim=list(zip(args.net_filter_size, args.net_seq_lengh)),
+    model = ResNet1d(input_dim=(N_LEADS, args["seq_length"]),
+                     blocks_dim=list(zip(args["net_filter_size"], args["net_seq_lengh"])),
                      n_classes=N_CLASSES,
-                     kernel_size=args.kernel_size,
-                     dropout_rate=args.dropout_rate)
+                     kernel_size=args["kernel_size"],
+                     dropout_rate=args["dropout_rate"])
     model.to(device=device)
     tqdm.write("Done!")
 
     tqdm.write("Define optimizer...")
-    optimizer = optim.Adam(model.parameters(), args.lr)
+    optimizer = optim.Adam(model.parameters(), args["lr"])
     tqdm.write("Done!")
 
     tqdm.write("Define scheduler...")
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=args.patience,
-                                                     min_lr=args.lr_factor * args.min_lr,
-                                                     factor=args.lr_factor)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=args["patience"],
+                                                     min_lr=args["lr_factor"] * args["min_lr"],
+                                                     factor=args["lr_factor"])
     tqdm.write("Done!")
 
     tqdm.write("Training...")
@@ -186,7 +194,7 @@ if __name__ == "__main__":
     best_loss = np.Inf
     history = pd.DataFrame(columns=['epoch', 'train_loss', 'valid_loss', 'lr',
                                     'weighted_rmse', 'weighted_mae', 'rmse', 'mse'])
-    for ep in range(start_epoch, args.epochs):
+    for ep in range(start_epoch, args["epochs"]):
         # compute train loss and metrics
         train_wmse, train_mse, train_wmae = train(ep, train_loader)
         valid_loss = eval(ep, valid_loader)
@@ -204,7 +212,7 @@ if __name__ == "__main__":
         for param_group in optimizer.param_groups:
             learning_rate = param_group["lr"]
         # Interrupt for minimum learning rate
-        if learning_rate < args.min_lr:
+        if learning_rate < args["min_lr"]:
             break
         # Print message
         tqdm.write('Epoch {:2d}: \tTrain Loss {:.6f} ' \
