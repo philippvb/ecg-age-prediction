@@ -3,14 +3,16 @@ import torch
 import os
 from tqdm import tqdm
 from resnet import ResNet1d
-from dataloader import BatchTensors
+from dataloader import ECGAgeDataset
+from torch.utils.data import DataLoader, random_split
 import torch.optim as optim
 import numpy as np
+from datetime import datetime
 
 
 def compute_loss(ages, pred_ages, weights):
     diff = ages.flatten() - pred_ages.flatten()
-    loss = torch.sum(weights.flatten() * diff * diff)
+    loss = torch.mean(weights.flatten() * diff * diff) # i would do mean to normalize loss so that magnitude is independent of batch size
     return loss
 
 
@@ -34,7 +36,6 @@ def train(ep, dataload):
     train_bar = tqdm(initial=0, leave=True, total=len(dataload),
                      desc=train_desc.format(ep, 0, 0), position=0)
     for traces, ages, weights in dataload:
-        traces = traces.transpose(1, 2)
         traces, ages, weights = traces.to(device), ages.to(device), weights.to(device)
         # Reinitialize grad
         model.zero_grad()
@@ -65,7 +66,6 @@ def eval(ep, dataload):
     eval_bar = tqdm(initial=0, leave=True, total=len(dataload),
                     desc=eval_desc.format(ep, 0, 0), position=0)
     for traces, ages, weights in dataload:
-        traces = traces.transpose(1, 2)
         traces, ages, weights = traces.to(device), ages.to(device), weights.to(device)
         with torch.no_grad():
             # Forward pass
@@ -84,7 +84,6 @@ def eval(ep, dataload):
 
 
 if __name__ == "__main__":
-    import h5py
     import pandas as pd
     import argparse
     from warnings import warn
@@ -131,15 +130,17 @@ if __name__ == "__main__":
                         help='traces dataset in the hdf5 file.')
     parser.add_argument('--age_col', default='age',
                         help='column with the age in csv file.')
-    parser.add_argument('--cuda', action='store_true',
-                        help='use cuda for computations. (default: False)')
+    parser.add_argument('--gpu_id', default='0',
+                        help='Which gpu to use.')
     parser.add_argument('--n_valid', type=int, default=100,
                         help='the first `n_valid` exams in the hdf will be for validation.'
-                             'The rest is for training')
-    parser.add_argument('path_to_traces',
+                             'The rest is for training') # how is this different from train/valid split above
+    parser.add_argument('--path_to_traces', default="/home/caran948/datasets/ecg-traces/preprocessed/traces.hdf5",
                         help='path to file containing ECG traces')
-    parser.add_argument('path_to_csv',
+    parser.add_argument('--path_to_csv', default="/home/caran948/datasets/ecg-traces/annotations.csv",
                         help='path to csv file containing attributes.')
+    parser.add_argument('--dataset_subset', default=0.02,
+                        help='Size of the subset of dataset to take')
     args, unk = parser.parse_known_args()
     # Check for unknown options
     if unk:
@@ -148,32 +149,23 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     print(args)
     # Set device
-    device = torch.device('cuda:0' if args.cuda else 'cpu')
-    folder = args.folder
+    device = torch.device('cuda:' + args.gpu_id if torch.cuda.is_available() else 'cpu')
+    folder = args.folder + datetime.now().strftime("%y_%m_%d_%H_%M") + "/" # add date
 
     # Generate output folder if needed
-    if not os.path.exists(args.folder):
-        os.makedirs(args.folder)
+    if not os.path.exists(folder):
+        os.makedirs(folder)
     # Save config file
-    with open(os.path.join(args.folder, 'args.json'), 'w') as f:
+    with open(os.path.join(folder, 'args.json'), 'w') as f:
         json.dump(vars(args), f, indent='\t')
 
     tqdm.write("Building data loaders...")
-    # Get h5 data
-    f = h5py.File(args.path_to_traces, 'r')
-    traces = f[args.traces_dset]
-    # Get csv data
-    df = pd.read_csv(args.path_to_csv)
-    ages = df[args.age_col]
-    # Train/ val split
-    train_ages, valid_ages = ages[args.n_valid:], ages[:args.n_valid]
-    train_traces, valid_traces = traces[args.n_valid:], traces[:args.n_valid]
-    # weights
-    train_weights = compute_weights(train_ages)
-    valid_weights = compute_weights(valid_ages)
-    # Dataloader
-    train_loader = BatchTensors(train_traces, train_ages, train_weights, bs=args.batch_size)
-    valid_loader = BatchTensors(valid_traces, valid_ages, valid_weights, bs=args.batch_size)
+    dataset = ECGAgeDataset(args.path_to_traces, args.path_to_csv, device=device, id_key="id_exam", tracings_key="signal", size=args.dataset_subset)
+    train_dataset_size = int(len(dataset) * (1 - args.valid_split))
+    train_set, valid_set = random_split(dataset, [train_dataset_size, len(dataset) - train_dataset_size])
+    train_loader = DataLoader(train_set, batch_size=args.batch_size)
+    valid_loader = DataLoader(valid_set, batch_size=args.batch_size)
+
     tqdm.write("Done!")
 
     tqdm.write("Define model...")
