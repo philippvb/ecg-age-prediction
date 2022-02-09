@@ -10,27 +10,29 @@ import numpy as np
 from datetime import datetime
 
 
-def compute_loss(ages, pred_ages, weights):
+# maybe go to mean at some point
+def compute_mse(ages, pred_ages, weights=None):
     diff = ages.flatten() - pred_ages.flatten()
-    loss = torch.mean(weights.flatten() * diff * diff) # i would do mean to normalize loss so that magnitude is independent of batch size
+    if torch.is_tensor(weights):
+        loss = torch.sum(weights.flatten() * diff * diff)
+    else:
+        loss = torch.sum(diff * diff)
     return loss
 
 
-def compute_weights(ages, max_weight=np.inf):
-    _, inverse, counts = np.unique(ages, return_inverse=True, return_counts=True)
-    weights = 1 / counts[inverse]
-    normalized_weights = weights / sum(weights)
-    w = len(ages) * normalized_weights
-    # Truncate weights to a maximum
-    if max_weight < np.inf:
-        w = np.minimum(w, max_weight)
-        w = len(ages) * w / sum(w)
-    return w
-
+def compute_mae(ages, pred_ages, weights=None):
+    diff = ages.flatten() - pred_ages.flatten()
+    if torch.is_tensor(weights):
+        wmae = torch.sum(weights.flatten() * torch.abs(diff))
+    else:
+        wmae = torch.sum(torch.abs(diff))
+    return wmae
 
 def train(ep, dataload):
     model.train()
-    total_loss = 0
+    total_wmse = 0
+    total_mse = 0
+    total_wmae = 0
     n_entries = 0
     train_desc = "Epoch {:2d}: train - Loss: {:.6f}"
     train_bar = tqdm(initial=0, leave=True, total=len(dataload),
@@ -42,20 +44,25 @@ def train(ep, dataload):
         # Send to device
         # Forward pass
         pred_ages = model(traces)
-        loss = compute_loss(ages, pred_ages, weights)
+        loss = compute_mse(ages, pred_ages, weights)
         # Backward pass
         loss.backward()
         # Optimize
         optimizer.step()
         # Update
         bs = len(traces)
-        total_loss += loss.detach().cpu().numpy()
+        # calculate tracking metrics
+        with torch.no_grad():
+            total_wmse += loss.detach().cpu().numpy()
+            total_mse += compute_mse(ages, pred_ages, weights=None).cpu().numpy()
+            total_wmae += compute_mae(ages, pred_ages, weights).cpu().numpy()
+
         n_entries += bs
         # Update train bar
-        train_bar.desc = train_desc.format(ep, total_loss / n_entries)
+        train_bar.desc = train_desc.format(ep, total_mse / n_entries)
         train_bar.update(1)
     train_bar.close()
-    return total_loss / n_entries
+    return total_wmse / n_entries, total_mse/n_entries, total_wmae/n_entries
 
 
 def eval(ep, dataload):
@@ -70,7 +77,7 @@ def eval(ep, dataload):
         with torch.no_grad():
             # Forward pass
             pred_ages = model(traces)
-            loss = compute_loss(ages, pred_ages, weights)
+            loss = compute_mse(ages, pred_ages, weights)
             # Update outputs
             bs = len(traces)
             # Update ids
@@ -91,7 +98,7 @@ if __name__ == "__main__":
     # Arguments that will be saved in config file
     parser = argparse.ArgumentParser(add_help=True,
                                      description='Train model to predict rage from the raw ecg tracing.')
-    parser.add_argument('--epochs', type=int, default=70,
+    parser.add_argument('--epochs', type=int, default=1,
                         help='maximum number of epochs (default: 70)')
     parser.add_argument('--seed', type=int, default=2,
                         help='random seed for number generator (default: 2)')
@@ -139,7 +146,7 @@ if __name__ == "__main__":
                         help='path to file containing ECG traces')
     parser.add_argument('--path_to_csv', default="/home/caran948/datasets/ecg-traces/annotations.csv",
                         help='path to csv file containing attributes.')
-    parser.add_argument('--dataset_subset', default=0.02,
+    parser.add_argument('--dataset_subset', default=0.01,
                         help='Size of the subset of dataset to take')
     args, unk = parser.parse_known_args()
     # Check for unknown options
@@ -160,7 +167,9 @@ if __name__ == "__main__":
         json.dump(vars(args), f, indent='\t')
 
     tqdm.write("Building data loaders...")
-    dataset = ECGAgeDataset(args.path_to_traces, args.path_to_csv, device=device, id_key="id_exam", tracings_key="signal", size=args.dataset_subset)
+    dataset = ECGAgeDataset(args.path_to_traces, args.path_to_csv, device=device,
+     id_key="id_exam", tracings_key="signal",
+      size=args.dataset_subset)
     train_dataset_size = int(len(dataset) * (1 - args.valid_split))
     train_set, valid_set = random_split(dataset, [train_dataset_size, len(dataset) - train_dataset_size])
     train_loader = DataLoader(train_set, batch_size=args.batch_size)
@@ -195,7 +204,8 @@ if __name__ == "__main__":
     history = pd.DataFrame(columns=['epoch', 'train_loss', 'valid_loss', 'lr',
                                     'weighted_rmse', 'weighted_mae', 'rmse', 'mse'])
     for ep in range(start_epoch, args.epochs):
-        train_loss = train(ep, train_loader)
+        # compute train loss and metrics
+        wmse, mse, wmae = train(ep, train_loader)
         valid_loss = eval(ep, valid_loader)
         # Save best model
         if valid_loss < best_loss:
@@ -216,10 +226,12 @@ if __name__ == "__main__":
         # Print message
         tqdm.write('Epoch {:2d}: \tTrain Loss {:.6f} ' \
                   '\tValid Loss {:.6f} \tLearning Rate {:.7f}\t'
-                 .format(ep, train_loss, valid_loss, learning_rate))
+                 .format(ep, wmse, valid_loss, learning_rate))
         # Save history
-        history = history.append({"epoch": ep, "train_loss": train_loss,
-                                  "valid_loss": valid_loss, "lr": learning_rate}, ignore_index=True)
+        history = history.append({"epoch": ep, "train_loss": wmse,
+                                  "valid_loss": valid_loss, "lr": learning_rate,
+                                  "weighted_rmse": np.sqrt(wmse), "weighted_mae": wmae, "rmse": np.sqrt(mse),"mse": mse},
+                                   ignore_index=True)
         history.to_csv(os.path.join(folder, 'history.csv'), index=False)
         # Update learning rate
         scheduler.step(valid_loss)
