@@ -1,5 +1,7 @@
 
 # Imports
+import sys
+sys.path.append("/home/phba123/code/ecg-age-prediction")
 from src.resnet import ResNet1d
 from tqdm import tqdm
 import h5py
@@ -10,14 +12,14 @@ import numpy as np
 import argparse
 from warnings import warn
 import pandas as pd
-from src.dataloader import ECGAgeDataset
+from src.dataloader import ECGAgeDataset, GaussianNoiseECGData
 from laplace import Laplace
 
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument('--mdl', default="./model",
+    parser.add_argument('--mdl', default="./model/22_02_07_12_59",
                         help='folder containing model.')
     parser.add_argument('--path_to_traces', default="/home/caran948/datasets/ecg-traces/preprocessed/traces.hdf5",
                         help='path to file containing ECG traces')
@@ -52,7 +54,8 @@ if __name__ == "__main__":
     # Get traces
     # how much of our dataset we actually use, on a scale from 0 to 1
     dataset_subset = 0.001
-    dataset = ECGAgeDataset(args.path_to_traces, args.path_to_csv, device=device, id_key="id_exam", tracings_key="signal", size=dataset_subset, add_weights=False)
+    dataset = ECGAgeDataset(args.path_to_traces, args.path_to_csv, id_key="id_exam", tracings_key="signal", size=dataset_subset, add_weights=False)
+    dataset_size = len(dataset)
     dataset = torch.utils.data.DataLoader(dataset, batch_size=32)
 
     print("Estimating Laplace model")
@@ -71,6 +74,29 @@ if __name__ == "__main__":
 
     print(laplace_model.posterior_covariance)
     print(laplace_model.sigma_noise.item())
+
+    with torch.no_grad():
+        var = torch.tensor([0.0])
+        for data, ages in dataset:
+            data = data.to(device)
+            out_mean, out_var = laplace_model(data)
+            var += out_var.cpu().sum()
+        var/= dataset_size
+        print("Mean ood var is:", var)
+
+        ood_size = 128
+        ood_data = GaussianNoiseECGData(ood_size)
+        ood_loader = torch.utils.data.DataLoader(ood_data, batch_size=32)
+        # ood_data.tracings = ood_data.tracings.to(device)
+        # out_mean, out_var = laplace_model(ood_data.tracings)
+        var = torch.tensor([0.0])
+        for data, ages in ood_loader:
+            data = data.to(device)
+            out_mean, out_var = laplace_model(data)
+            var += out_var.cpu().sum()
+        var/= ood_size
+        print("Mean ood var is:", var)
+    
 
     # # add Laplace
     # laplace_set =ECGAgeDataset(args.path_to_traces, args.path_to_csv, device=device, id_key="id_exam", tracings_key="signal", size=dataset_subset, add_weights=False)
