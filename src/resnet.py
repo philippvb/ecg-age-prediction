@@ -112,6 +112,7 @@ class ResNet1d(nn.Module):
         self.conv1 = nn.Conv1d(n_filters_in, n_filters_out, kernel_size, bias=False,
                                stride=downsample, padding=padding)
         self.bn1 = nn.BatchNorm1d(n_filters_out)
+        self.relu = nn.ReLU()
 
         # Residual block layers
         self.res_blocks = []
@@ -134,7 +135,7 @@ class ResNet1d(nn.Module):
         # First layers
         x = self.conv1(x)
         x = self.bn1(x)
-        x = nn.ReLU(x)
+        x = self.relu(x)
 
         # Residual blocks
         y = x
