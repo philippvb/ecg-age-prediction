@@ -1,8 +1,7 @@
-import sys
-sys.path.append("/Users/philippvonbachmann/Documents/University/Schweden22/Classes/ResearchProject/ecg-age-prediction")
 import json
 import torch
-import os
+import os, sys
+sys.path.append(os.getcwd())
 from tqdm import tqdm
 from src.resnet import ProbResNet1d
 from src.dataloader import ECGAgeDataset
@@ -10,8 +9,8 @@ from torch.utils.data import DataLoader, random_split
 import torch.optim as optim
 import numpy as np
 from datetime import datetime
-from src.loss_functions import gaussian_nll, mse, mae
-
+from src.loss_functions import mse, mae, gaussian_nll
+from src.argparser import parse_ecg_args, parse_ecg_json
 
 def train(ep, dataload):
     model.train()
@@ -79,108 +78,50 @@ if __name__ == "__main__":
     import pandas as pd
     import argparse
     from warnings import warn
+    args = parse_ecg_json()
 
-    # Arguments that will be saved in config file
-    parser = argparse.ArgumentParser(add_help=True,
-                                     description='Train model to predict rage from the raw ecg tracing.')
-    parser.add_argument('--epochs', type=int, default=1,
-                        help='maximum number of epochs (default: 70)')
-    parser.add_argument('--seed', type=int, default=2,
-                        help='random seed for number generator (default: 2)')
-    parser.add_argument('--sample_freq', type=int, default=400,
-                        help='sample frequency (in Hz) in which all traces will be resampled at (default: 400)')
-    parser.add_argument('--seq_length', type=int, default=4096,
-                        help='size (in # of samples) for all traces. If needed traces will be zeropadded'
-                                    'to fit into the given size. (default: 4096)')
-    parser.add_argument('--scale_multiplier', type=int, default=10,
-                        help='multiplicative factor used to rescale inputs.')
-    parser.add_argument('--batch_size', type=int, default=32,
-                        help='batch size (default: 32).')
-    parser.add_argument('--valid_split', type=float, default=0.05,
-                        help='fraction of the data used for validation (default: 0.1).')
-    parser.add_argument('--test_split', type=float, default=0.15,
-                        help='fraction of the data kept away for testing in a latter stage (default: 0.1).')
-    parser.add_argument('--lr', type=float, default=0.001,
-                        help='learning rate (default: 0.001)')
-    parser.add_argument("--patience", type=int, default=7,
-                        help='maximum number of epochs without reducing the learning rate (default: 7)')
-    parser.add_argument("--min_lr", type=float, default=1e-7,
-                        help='minimum learning rate (default: 1e-7)')
-    parser.add_argument("--lr_factor", type=float, default=0.1,
-                        help='reducing factor for the lr in a plateu (default: 0.1)')
-    parser.add_argument('--net_filter_size', type=int, nargs='+', default=[64, 128, 196, 256, 320],
-                        help='filter size in resnet layers (default: [64, 128, 196, 256, 320]).')
-    parser.add_argument('--net_seq_lengh', type=int, nargs='+', default=[4096, 1024, 256, 64, 16],
-                        help='number of samples per resnet layer (default: [4096, 1024, 256, 64, 16]).')
-    parser.add_argument('--dropout_rate', type=float, default=0.8,
-                        help='dropout rate (default: 0.8).')
-    parser.add_argument('--kernel_size', type=int, default=17,
-                        help='kernel size in convolutional layers (default: 17).')
-    parser.add_argument('--folder', default='model/',
-                        help='output folder (default: ./out)')
-    parser.add_argument('--traces_dset', default='tracings',
-                        help='traces dataset in the hdf5 file.')
-    parser.add_argument('--age_col', default='age',
-                        help='column with the age in csv file.')
-    parser.add_argument('--gpu_id', default='0',
-                        help='Which gpu to use.')
-    parser.add_argument('--n_valid', type=int, default=100,
-                        help='the first `n_valid` exams in the hdf will be for validation.'
-                             'The rest is for training') # how is this different from train/valid split above
-    parser.add_argument('--path_to_traces', default="/Users/philippvonbachmann/Documents/University/Schweden22/Classes/ResearchProject/ecg-age-prediction/dataset/exams_part17.hdf5",
-                        help='path to file containing ECG traces')
-    parser.add_argument('--path_to_csv', default="/Users/philippvonbachmann/Documents/University/Schweden22/Classes/ResearchProject/ecg-age-prediction/dataset/exams.csv",
-                        help='path to csv file containing attributes.')
-    parser.add_argument('--dataset_subset', default=0.01,
-                        help='Size of the subset of dataset to take')
-    args, unk = parser.parse_known_args()
-    # Check for unknown options
-    if unk:
-        warn("Unknown arguments:" + str(unk) + ".")
-
-    torch.manual_seed(args.seed)
+    torch.manual_seed(args["seed"])
     print(args)
     # Set device
-    device = torch.device('cuda:' + args.gpu_id if torch.cuda.is_available() else 'cpu')
-    folder = args.folder + datetime.now().strftime("%y_%m_%d_%H_%M") + "/" # add date
+    device = torch.device('cuda:' + args["gpu_id"] if torch.cuda.is_available() else 'cpu')
+    folder = args["folder"] + datetime.now().strftime("%y_%m_%d_%H_%M") + "/" # add date
 
     # Generate output folder if needed
     if not os.path.exists(folder):
         os.makedirs(folder)
     # Save config file
     with open(os.path.join(folder, 'args.json'), 'w') as f:
-        json.dump(vars(args), f, indent='\t')
+        json.dump(args, f, indent='\t')
 
     tqdm.write("Building data loaders...")
-    dataset = ECGAgeDataset(args.path_to_traces, args.path_to_csv, device=device,
-    #  id_key="id_exam", tracings_key="signal",
-      size=args.dataset_subset)
-    train_dataset_size = int(len(dataset) * (1 - args.valid_split))
+    dataset = ECGAgeDataset(args["path_to_traces"], args["path_to_csv"],
+     id_key=args["id_key"], tracings_key=args["tracings_key"],
+      size=args["dataset_subset"])
+    train_dataset_size = int(len(dataset) * (1 - args["valid_split"]))
     train_set, valid_set = random_split(dataset, [train_dataset_size, len(dataset) - train_dataset_size])
-    train_loader = DataLoader(train_set, batch_size=args.batch_size)
-    valid_loader = DataLoader(valid_set, batch_size=args.batch_size)
+    train_loader = DataLoader(train_set, batch_size=args["batch_size"])
+    valid_loader = DataLoader(valid_set, batch_size=args["batch_size"])
 
     tqdm.write("Done!")
 
     tqdm.write("Define model...")
     N_LEADS = 12  # the 12 leads
     N_CLASSES = 1  # just the age
-    model = ProbResNet1d(input_dim=(N_LEADS, args.seq_length),
-                     blocks_dim=list(zip(args.net_filter_size, args.net_seq_lengh)),
-                     kernel_size=args.kernel_size,
-                     dropout_rate=args.dropout_rate,
-                     max_std=10)
+    model = ProbResNet1d(input_dim=(N_LEADS, args["seq_length"]),
+                     blocks_dim=list(zip(args["net_filter_size"], args["net_seq_lengh"])),
+                     kernel_size=args["kernel_size"],
+                     dropout_rate=args["dropout_rate"])
     model.to(device=device)
     tqdm.write("Done!")
 
     tqdm.write("Define optimizer...")
-    optimizer = optim.Adam(model.parameters(), args.lr)
+    optimizer = optim.Adam(model.parameters(), args["lr"])
     tqdm.write("Done!")
 
     tqdm.write("Define scheduler...")
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=args.patience,
-                                                     min_lr=args.lr_factor * args.min_lr,
-                                                     factor=args.lr_factor)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=args["patience"],
+                                                     min_lr=args["lr_factor"] * args["min_lr"],
+                                                     factor=args["lr_factor"])
     tqdm.write("Done!")
 
     tqdm.write("Training...")
@@ -188,7 +129,7 @@ if __name__ == "__main__":
     best_loss = np.Inf
     history = pd.DataFrame(columns=['epoch', 'train_loss', 'valid_loss', 'lr',
                                     'weighted_rmse', 'weighted_mae', 'rmse', 'mse'])
-    for ep in range(start_epoch, args.epochs):
+    for ep in range(start_epoch, args["epochs"]):
         # compute train loss and metrics
         train_wmse, train_mse, train_wmae = train(ep, train_loader)
         valid_loss = eval(ep, valid_loader)
@@ -206,7 +147,7 @@ if __name__ == "__main__":
         for param_group in optimizer.param_groups:
             learning_rate = param_group["lr"]
         # Interrupt for minimum learning rate
-        if learning_rate < args.min_lr:
+        if learning_rate < args["min_lr"]:
             break
         # Print message
         tqdm.write('Epoch {:2d}: \tTrain Loss {:.6f} ' \
@@ -221,5 +162,3 @@ if __name__ == "__main__":
         # Update learning rate
         scheduler.step(valid_loss)
     tqdm.write("Done!")
-
-
