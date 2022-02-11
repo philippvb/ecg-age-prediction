@@ -134,6 +134,7 @@ class ResNet1d(nn.Module):
         # First layers
         x = self.conv1(x)
         x = self.bn1(x)
+        x = nn.ReLU(x)
 
         # Residual blocks
         y = x
