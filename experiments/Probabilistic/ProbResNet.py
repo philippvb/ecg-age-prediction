@@ -17,6 +17,7 @@ def train(ep, dataload):
     total_wmse = 0
     total_mse = 0
     total_wmae = 0
+    total_loss = 0
     n_entries = 0
     train_desc = "Epoch {:2d}: train - Loss: {:.6f}"
     train_bar = tqdm(initial=0, leave=True, total=len(dataload),
@@ -37,7 +38,8 @@ def train(ep, dataload):
         bs = len(traces)
         # calculate tracking metrics
         with torch.no_grad():
-            total_wmse += loss.detach().cpu().numpy()
+            total_loss += loss.detach().cpu().numpy()
+            total_wmse += mse(ages, pred_ages, weights=weights).cpu().numpy()
             total_mse += mse(ages, pred_ages, weights=None).cpu().numpy()
             total_wmae += mae(ages, pred_ages, weights).cpu().numpy()
 
@@ -46,7 +48,7 @@ def train(ep, dataload):
         train_bar.desc = train_desc.format(ep, total_mse / n_entries)
         train_bar.update(1)
     train_bar.close()
-    return total_wmse / n_entries, total_mse/n_entries, total_wmae/n_entries
+    return total_loss/ n_entries, total_wmse / n_entries, total_mse/n_entries, total_wmae/n_entries
 
 
 def eval(ep, dataload):
@@ -131,7 +133,7 @@ if __name__ == "__main__":
                                     'weighted_rmse', 'weighted_mae', 'rmse', 'mse'])
     for ep in range(start_epoch, args["epochs"]):
         # compute train loss and metrics
-        train_wmse, train_mse, train_wmae = train(ep, train_loader)
+        train_loss, train_wmse, train_mse, train_wmae = train(ep, train_loader)
         valid_loss = eval(ep, valid_loader)
         # Save best model
         if valid_loss < best_loss:
@@ -152,9 +154,9 @@ if __name__ == "__main__":
         # Print message
         tqdm.write('Epoch {:2d}: \tTrain Loss {:.6f} ' \
                   '\tValid Loss {:.6f} \tLearning Rate {:.7f}\t'
-                 .format(ep, train_wmse, valid_loss, learning_rate))
+                 .format(ep, train_loss, valid_loss, learning_rate))
         # Save history
-        history = history.append({"epoch": ep, "train_loss": train_wmse,
+        history = history.append({"epoch": ep, "train_loss": train_loss,
                                   "valid_loss": valid_loss, "lr": learning_rate,
                                   "weighted_rmse": np.sqrt(train_wmse), "weighted_mae": train_wmae, "rmse": np.sqrt(train_mse),"mse": train_mse},
                                    ignore_index=True)
