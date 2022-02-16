@@ -30,7 +30,7 @@ def gaussian_nll(target: torch.Tensor, pred: torch.Tensor, pred_var: torch.Tenso
     Returns:
         (torch.Tensor): The sum of the negative log_likelihoods over the batch
     """
-    loss = torch.square(pred - target) / pred_var - torch.log(pred_var)
+    loss = torch.square(pred - target) / pred_var + torch.log(pred_var)
     if torch.is_tensor(weights):
         return (weights * loss).sum()
     else:
