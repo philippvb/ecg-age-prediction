@@ -60,6 +60,7 @@ class ECGAgeDataset(TensorDataset):
         return w
 
 
+# OOD datasets
 class GaussianNoiseECGData(TensorDataset):
     """A Class which generates random ECG data from a Gaussian Noise distribution
     """
@@ -68,3 +69,13 @@ class GaussianNoiseECGData(TensorDataset):
         tracings = torch.rand(tuple([dataset_size] + list(tracings_shape)))
         ages = torch.rand((dataset_size, 1))
         super().__init__(tracings, ages)
+
+class FlippedECGAge(ECGAgeDataset):
+    def __init__(self, tracing_filepath, metadata_filepath, size=1, id_key="exam_id", tracings_key="tracings", add_weights=True) -> None:
+        super().__init__(tracing_filepath, metadata_filepath, size, id_key, tracings_key, add_weights)
+        self.tensors[0] = torch.flip(self.tensors, dims=[-1])
+
+class NoisyECGAge(ECGAgeDataset):
+    def __init__(self, tracing_filepath, metadata_filepath, noise=1, size=1, id_key="exam_id", tracings_key="tracings", add_weights=True) -> None:
+        super().__init__(tracing_filepath, metadata_filepath, size, id_key, tracings_key, add_weights)
+        self.tensors[0] += noise * torch.randn_like(self.tensors[0])
