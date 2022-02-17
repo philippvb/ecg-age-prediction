@@ -12,8 +12,9 @@ import numpy as np
 import argparse
 from warnings import warn
 import pandas as pd
-from src.dataloader import  BatchDataloader, compute_weights
+from src.dataloader import  BatchDataloader, compute_weights, ECGAgeDataset
 from laplace import Laplace
+from torch.utils.data import DataLoader, random_split
 from src.plotting import plot_calibration
 
 
@@ -44,26 +45,17 @@ if __name__ == "__main__":
     model.load_state_dict(ckpt["model"])
     model = model.to(device)
 
-    print("Building data loaders...")
-    # Get csv data
-    df = pd.read_csv(config_dict["path_to_csv"], index_col=config_dict["ids_col"])
-    ages = df[config_dict["age_col"]]
-    # Get h5 data
-    f = h5py.File(config_dict["path_to_traces"], 'r')
-    traces = f[config_dict["traces_dset"]]
-    if config_dict["ids_dset"]:
-        h5ids = f[config_dict["ids_dset"]]
-        df = df.reindex(h5ids, fill_value=False, copy=True)
-    # Train/ val split
-    valid_mask = np.arange(len(df)) <= config_dict["n_valid"]
-    train_mask = ~valid_mask
-    # weights
-    weights = compute_weights(ages)
-    # Dataloader
-    train_loader = BatchDataloader(traces, ages, bs=config_dict["batch_size"], mask=train_mask, transpose=True)
-    valid_loader = BatchDataloader(traces, ages, bs=config_dict["batch_size"], mask=valid_mask, transpose=True)
+    print("Loading data")
+    # Get traces
+    # how much of our dataset we actually use, on a scale from 0 to 1
+    dataset = ECGAgeDataset(config_dict["path_to_traces"], config_dict["path_to_csv"],
+     id_key=config_dict["ids_col"], tracings_key=config_dict["traces_dset"],
+      size=0.01, add_weights=False)
+    train_dataset_size = int(len(dataset) * (1 - config_dict["valid_split"]))
+    train_set, valid_set = random_split(dataset, [train_dataset_size, len(dataset) - train_dataset_size])
+    train_loader = DataLoader(dataset, batch_size=config_dict["batch_size"])
+    valid_loader = DataLoader(valid_set, batch_size=config_dict["batch_size"])
 
-    tqdm.write("Done!")
 
     print("Estimating Laplace model")
     # add Laplace

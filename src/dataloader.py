@@ -122,7 +122,7 @@ class BatchDataloader:
         self.sum += sum(batch_mask)
         out_value = [torch.tensor(b[batch_mask], dtype=torch.float32) for b in batch]
         if self.transpose:
-            out_value[0] = out_value[0].tranpose(1,2)
+            out_value[0] = out_value[0].transpose(1,2)
         return out_value
 
     def __iter__(self):
