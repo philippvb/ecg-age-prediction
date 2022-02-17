@@ -46,22 +46,22 @@ if __name__ == "__main__":
 
     print("Building data loaders...")
     # Get csv data
-    df = pd.read_csv(args["path_to_csv"], index_col=args["ids_col"])
-    ages = df[args["age_col"]]
+    df = pd.read_csv(config_dict["path_to_csv"], index_col=config_dict["ids_col"])
+    ages = df[config_dict["age_col"]]
     # Get h5 data
-    f = h5py.File(args["path_to_traces"], 'r')
-    traces = f[args["traces_dset"]]
+    f = h5py.File(config_dict["path_to_traces"], 'r')
+    traces = f[config_dict["traces_dset"]]
     if args["ids_dset"]:
-        h5ids = f[args["ids_dset"]]
+        h5ids = f[config_dict["ids_dset"]]
         df = df.reindex(h5ids, fill_value=False, copy=True)
     # Train/ val split
-    valid_mask = np.arange(len(df)) <= args["n_valid"]
+    valid_mask = np.arange(len(df)) <= config_dict["n_valid"]
     train_mask = ~valid_mask
     # weights
     weights = compute_weights(ages)
     # Dataloader
-    train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask)
-    valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask)
+    train_loader = BatchDataloader(traces, ages, weights, bs=config_dict["batch_size"], mask=train_mask)
+    valid_loader = BatchDataloader(traces, ages, weights, bs=config_dict["batch_size"], mask=valid_mask)
 
     tqdm.write("Done!")
 
