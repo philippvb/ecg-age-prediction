@@ -8,7 +8,7 @@ def plot_calibration(model, test_loader, axs, device, data_noise=0):
     confidences = []
     for index, (data, target) in enumerate(test_loader):
         target = target.to(device)
-        data = data.to(device)        
+        data = data.to(device).transpose(1,2)        
         pred_ages, pred_ages_var = model(data)
         error = torch.abs(pred_ages - target)
         errors.append(error)
