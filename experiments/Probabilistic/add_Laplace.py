@@ -12,10 +12,9 @@ import numpy as np
 import argparse
 from warnings import warn
 import pandas as pd
-from src.dataloader import ECGAgeDataset, GaussianNoiseECGData
+from src.dataloader import  BatchDataloader, compute_weights
 from laplace import Laplace
 from src.plotting import plot_calibration
-from torch.utils.data import DataLoader, random_split
 
 
 
@@ -44,21 +43,32 @@ if __name__ == "__main__":
     # load model checkpoint
     model.load_state_dict(ckpt["model"])
     model = model.to(device)
-    print("Loading data")
-    # Get traces
-    # how much of our dataset we actually use, on a scale from 0 to 1
-    dataset = ECGAgeDataset(config_dict["path_to_traces"], config_dict["path_to_csv"],
-     id_key=config_dict["id_key"], tracings_key=config_dict["tracings_key"],
-      size=0.01, add_weights=False)
-    train_dataset_size = int(len(dataset) * (1 - config_dict["valid_split"]))
-    dataset, _ = random_split(dataset, [train_dataset_size, len(dataset) - train_dataset_size])
-    dataset_size = len(dataset)
-    data_loader = DataLoader(dataset, batch_size=config_dict["batch_size"])
+
+    print("Building data loaders...")
+    # Get csv data
+    df = pd.read_csv(args["path_to_csv"], index_col=args["ids_col"])
+    ages = df[args["age_col"]]
+    # Get h5 data
+    f = h5py.File(args["path_to_traces"], 'r')
+    traces = f[args["traces_dset"]]
+    if args["ids_dset"]:
+        h5ids = f[args["ids_dset"]]
+        df = df.reindex(h5ids, fill_value=False, copy=True)
+    # Train/ val split
+    valid_mask = np.arange(len(df)) <= args["n_valid"]
+    train_mask = ~valid_mask
+    # weights
+    weights = compute_weights(ages)
+    # Dataloader
+    train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask)
+    valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask)
+
+    tqdm.write("Done!")
 
     print("Estimating Laplace model")
     # add Laplace
     laplace_model = Laplace(model, "regression", subset_of_weights='last_layer', hessian_structure='full')
-    laplace_model.fit(data_loader)
+    laplace_model.fit(train_loader)
 
     print("Estimating hyperparameters")
     log_prior, log_sigma = torch.ones(1, requires_grad=True), torch.ones(1, requires_grad=True)
@@ -73,36 +83,36 @@ if __name__ == "__main__":
 
     with torch.no_grad():
         var = torch.tensor([0.0])
-        for data, ages in data_loader:
+        for data, ages in valid_loader:
             data = data.to(device)
             out_mean, out_var = laplace_model(data)
             var += out_var.cpu().sum()
-        var/= dataset_size
+        var/= len(valid_loader)
         print("Mean var is:", var.item())
 
         for noise in [0.1, 1, 10]:
             ood_var = torch.tensor([0.0])
-            for data, ages in data_loader:
+            for data, ages in valid_loader:
                 data += noise * torch.randn_like(data)
                 data = data.to(device)
                 out_mean, out_var = laplace_model(data)
                 ood_var += out_var.cpu().sum()
-            ood_var/= dataset_size
+            ood_var/= len(valid_loader)
             print(f"Mean var with noise of {noise} is:", ood_var.item())
 
         ood_var = torch.tensor([0.0])
-        for data, ages in data_loader:
+        for data, ages in valid_loader:
             data = torch.flip(data, dims=[-1])
             data = data.to(device)
             out_mean, out_var = laplace_model(data)
             ood_var += out_var.cpu().sum()
-        ood_var/= dataset_size
+        ood_var/= len(valid_loader)
         print(f"Mean var for flipped is:", ood_var.item())
         
 
         import matplotlib.pyplot as plt
         fig, axs = plt.subplots(1, figsize=(10, 10))
-        plot_calibration(laplace_model, data_loader, axs, device=device, data_noise=laplace_model.sigma_noise.item()**2)
+        plot_calibration(laplace_model, valid_loader, axs, device=device, data_noise=laplace_model.sigma_noise.item()**2)
         axs.set_title("Calibration")
         axs.set_xlim(0, 2 * var.sqrt())
         axs.set_xlabel("Confidence in form of standard deviation")
