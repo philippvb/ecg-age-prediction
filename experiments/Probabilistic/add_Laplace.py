@@ -51,7 +51,7 @@ if __name__ == "__main__":
     # Get h5 data
     f = h5py.File(config_dict["path_to_traces"], 'r')
     traces = f[config_dict["traces_dset"]]
-    if args["ids_dset"]:
+    if config_dict["ids_dset"]:
         h5ids = f[config_dict["ids_dset"]]
         df = df.reindex(h5ids, fill_value=False, copy=True)
     # Train/ val split
@@ -60,8 +60,8 @@ if __name__ == "__main__":
     # weights
     weights = compute_weights(ages)
     # Dataloader
-    train_loader = BatchDataloader(traces, ages, weights, bs=config_dict["batch_size"], mask=train_mask)
-    valid_loader = BatchDataloader(traces, ages, weights, bs=config_dict["batch_size"], mask=valid_mask)
+    train_loader = BatchDataloader(traces, ages, bs=config_dict["batch_size"], mask=train_mask)
+    valid_loader = BatchDataloader(traces, ages, bs=config_dict["batch_size"], mask=valid_mask)
 
     tqdm.write("Done!")
 
