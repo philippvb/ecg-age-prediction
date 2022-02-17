@@ -60,14 +60,15 @@ if __name__ == "__main__":
     laplace_model = Laplace(model, "regression", subset_of_weights='last_layer', hessian_structure='full')
     laplace_model.fit(data_loader)
 
-    # print("Estimating hyperparameters")
-    # log_prior, log_sigma = torch.ones(1, requires_grad=True), torch.ones(1, requires_grad=True)
-    # hyper_optimizer = torch.optim.Adam([log_prior, log_sigma], lr=1e-1)
-    # for i in tqdm(range(10)):
-    #     hyper_optimizer.zero_grad()
-    #     neg_marglik = - laplace_model.log_marginal_likelihood(log_prior.exp(), log_sigma.exp())
-    #     neg_marglik.backward()
-    #     hyper_optimizer.step()
+    print("Estimating hyperparameters")
+    log_prior, log_sigma = torch.ones(1, requires_grad=True), torch.ones(1, requires_grad=True)
+    hyper_optimizer = torch.optim.Adam([log_prior, log_sigma], lr=1e-1)
+    for i in tqdm(range(10)):
+        hyper_optimizer.zero_grad()
+        neg_marglik = - laplace_model.log_marginal_likelihood(log_prior.exp(), log_sigma.exp())
+        neg_marglik.backward()
+        hyper_optimizer.step()
+    print("The estimated data noise (std deviation) is:", laplace_model.sigma_noise.item())
 
 
     with torch.no_grad():
@@ -100,9 +101,10 @@ if __name__ == "__main__":
         
 
         import matplotlib.pyplot as plt
-        fig, axs = plt.subplots(1)
-        plot_calibration(laplace_model, data_loader, axs, device=device)
-        axs.set_xlim(0, 2 * var)
+        fig, axs = plt.subplots(1, figsize=(10, 10))
+        plot_calibration(laplace_model, data_loader, axs, device=device, data_noise=laplace_model.sigma_noise.item()**2)
+        axs.set_title("Calibration")
+        axs.set_xlim(0, 2 * var.sqrt())
         axs.set_xlabel("Confidence in form of standard deviation")
         axs.set_ylabel("Absolut error")
         plt.savefig("laplace_calibration.png")
