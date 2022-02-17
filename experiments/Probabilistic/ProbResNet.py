@@ -22,14 +22,19 @@ def train(ep, dataload):
     train_desc = "Epoch {:2d}: train - Loss: {:.6f}"
     train_bar = tqdm(initial=0, leave=True, total=len(dataload),
                      desc=train_desc.format(ep, 0, 0), position=0)
-    for traces, ages, weights in dataload:
+    for batch_idx, (traces, ages, weights) in enumerate(dataload):
         traces, ages, weights = traces.to(device), ages.to(device), weights.to(device)
         # Reinitialize grad
         model.zero_grad()
         # Send to device
         # Forward pass
-        pred_ages, pred_ages_var = model(traces)
-        loss = gaussian_nll(target=ages, pred=pred_ages, pred_var=pred_ages_var, weights=weights)
+        pred_ages, pred_ages_log_var = model(traces)
+        loss = gaussian_nll(target=ages, pred=pred_ages, pred_log_var=pred_ages_log_var, weights=weights)
+
+        if batch_idx % 100 == 0:
+            print(torch.exp(pred_ages_log_var[:10]))
+        if torch.isnan(loss):
+            raise ValueError("Loss is nan")
         # Backward pass
         loss.backward()
         # Optimize

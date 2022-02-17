@@ -151,15 +151,16 @@ class ResNet1d(nn.Module):
 
 
 class ProbResNet1d(ResNet1d):
-    def __init__(self, input_dim, blocks_dim, kernel_size=17, dropout_rate=0.8):
+    def __init__(self, input_dim, blocks_dim, kernel_size=17, dropout_rate=0.8, weight_init_scale=0.1):
         super().__init__(input_dim, blocks_dim, 2, kernel_size, dropout_rate)
+        torch.nn.init.uniform_(self.lin.weight, a=-weight_init_scale, b=weight_init_scale)
 
     def forward(self, x):
         output = super().forward(x)
         # sigmoid to make std positive and in some scale
         mean = output[:, 0]
-        std = torch.exp(output[:, 1])
-        return mean, std
+        log_var = output[:, 1]
+        return mean, log_var
 
         
 
