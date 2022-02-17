@@ -12,7 +12,8 @@ from datetime import datetime
 from src.loss_functions import mse, mae, gaussian_nll
 from src.argparser import parse_ecg_args, parse_ecg_json
 
-def train(ep, dataload):
+def train(ep, dataload, probabilistic=True):
+    print("Training with probabilistic", probabilistic)
     model.train()
     total_wmse = 0
     total_mse = 0
@@ -29,9 +30,12 @@ def train(ep, dataload):
         # Send to device
         # Forward pass
         pred_ages, pred_ages_log_var = model(traces)
-        loss = gaussian_nll(target=ages, pred=pred_ages, pred_log_var=pred_ages_log_var, weights=weights)
+        if probabilistic:
+            loss = gaussian_nll(target=ages, pred=pred_ages, pred_log_var=pred_ages_log_var, weights=weights)
+        else:
+            loss = mse(ages, pred_ages, weights)
 
-        if batch_idx % 100 == 0:
+        if batch_idx % 500 == 0:
             print(torch.exp(pred_ages_log_var[:10]))
         if torch.isnan(loss):
             raise ValueError("Loss is nan")
@@ -138,7 +142,7 @@ if __name__ == "__main__":
                                     'weighted_rmse', 'weighted_mae', 'rmse', 'mse'])
     for ep in range(start_epoch, args["epochs"]):
         # compute train loss and metrics
-        train_loss, train_wmse, train_mse, train_wmae = train(ep, train_loader)
+        train_loss, train_wmse, train_mse, train_wmae = train(ep, train_loader, probabilistic=ep>5)
         valid_loss = eval(ep, valid_loader)
         # Save best model
         if valid_loss < best_loss:
