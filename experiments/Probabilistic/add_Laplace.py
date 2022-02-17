@@ -14,21 +14,15 @@ from warnings import warn
 import pandas as pd
 from src.dataloader import ECGAgeDataset, GaussianNoiseECGData
 from laplace import Laplace
+from src.plotting import plot_calibration
+from torch.utils.data import DataLoader, random_split
 
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument('--mdl', default="./model/22_02_07_12_59",
+    parser.add_argument('--mdl',
                         help='folder containing model.')
-    parser.add_argument('--path_to_traces', default="/home/caran948/datasets/ecg-traces/preprocessed/traces.hdf5",
-                        help='path to file containing ECG traces')
-    parser.add_argument('--path_to_csv', default="/home/caran948/datasets/ecg-traces/annotations.csv",
-                        help='path to csv file containing attributes.')                        
-    parser.add_argument('--batch_size', type=int, default=8,
-                        help='number of exams per batch.')
-    parser.add_argument('--output', type=str, default='predicted_age.csv',
-                        help='output file.')
     args, unk = parser.parse_known_args()
     # Check for unknown options
     if unk:
@@ -53,15 +47,18 @@ if __name__ == "__main__":
     print("Loading data")
     # Get traces
     # how much of our dataset we actually use, on a scale from 0 to 1
-    dataset_subset = 0.001
-    dataset = ECGAgeDataset(args.path_to_traces, args.path_to_csv, id_key="id_exam", tracings_key="signal", size=dataset_subset, add_weights=False)
+    dataset = ECGAgeDataset(config_dict["path_to_traces"], config_dict["path_to_csv"],
+     id_key=config_dict["id_key"], tracings_key=config_dict["tracings_key"],
+      size=config_dict["dataset_subset"], add_weights=False)
+    train_dataset_size = int(len(dataset) * (1 - config_dict["valid_split"]))
+    dataset, _ = random_split(dataset, [train_dataset_size, len(dataset) - train_dataset_size])
     dataset_size = len(dataset)
-    dataset = torch.utils.data.DataLoader(dataset, batch_size=32)
+    data_loader = DataLoader(dataset, batch_size=config_dict["batch_size"])
 
     print("Estimating Laplace model")
     # add Laplace
     laplace_model = Laplace(model, "regression", subset_of_weights='last_layer', hessian_structure='full')
-    laplace_model.fit(dataset)
+    laplace_model.fit(data_loader)
 
     print("Estimating hyperparameters")
     log_prior, log_sigma = torch.ones(1, requires_grad=True), torch.ones(1, requires_grad=True)
@@ -77,12 +74,12 @@ if __name__ == "__main__":
 
     with torch.no_grad():
         var = torch.tensor([0.0])
-        for data, ages in dataset:
+        for data, ages in data_loader:
             data = data.to(device)
             out_mean, out_var = laplace_model(data)
             var += out_var.cpu().sum()
         var/= dataset_size
-        print("Mean ood var is:", var)
+        print("Mean var is:", var)
 
         ood_size = 128
         ood_data = GaussianNoiseECGData(ood_size)
@@ -96,6 +93,14 @@ if __name__ == "__main__":
             var += out_var.cpu().sum()
         var/= ood_size
         print("Mean ood var is:", var)
+
+        import matplotlib.pyplot as plt
+        fig, axs = plt.subplots(1)
+        plot_calibration(laplace_model, data_loader, axs)
+        axs.set_xlim(0, 0.5)
+        plt.savefig("laplace_calibration.png")
+
+    
     
 
     # # add Laplace
@@ -103,3 +108,8 @@ if __name__ == "__main__":
     # laplace_loader = torch.utils.data.DataLoader(laplace_set, batch_size=args.batch_size)
     # laplace_model = Laplace(model, "regression", subset_of_weights='last_layer', hessian_structure='full')
     # laplace_model.fit(laplace_loader)
+
+
+# what would be good evaluations:
+#   - prediction error vs uncertainty, we should see that with higher error the uncertainty gets higher
+#   
