@@ -95,8 +95,9 @@ def compute_weights(ages, max_weight=np.inf):
 
 
 class BatchDataloader:
-    def __init__(self, *tensors, bs=1, mask=None):
+    def __init__(self, *tensors, bs=1, mask=None, transpose=False):
         nonzero_idx, = np.nonzero(mask)
+        self.transpose = transpose
         self.tensors = tensors
         self.batch_size = bs
         self.mask = mask
@@ -119,7 +120,10 @@ class BatchDataloader:
         batch = [np.array(t[self.start:end]) for t in self.tensors]
         self.start = end
         self.sum += sum(batch_mask)
-        return [torch.tensor(b[batch_mask], dtype=torch.float32) for b in batch]
+        out_value = [torch.tensor(b[batch_mask], dtype=torch.float32) for b in batch]
+        if self.transpose:
+            out_value[0] = out_value[0].tranpose(1,2)
+        return out_value
 
     def __iter__(self):
         self.start = self.start_idx

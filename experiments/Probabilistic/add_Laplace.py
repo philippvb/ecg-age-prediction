@@ -60,8 +60,8 @@ if __name__ == "__main__":
     # weights
     weights = compute_weights(ages)
     # Dataloader
-    train_loader = BatchDataloader(traces, ages, bs=config_dict["batch_size"], mask=train_mask)
-    valid_loader = BatchDataloader(traces, ages, bs=config_dict["batch_size"], mask=valid_mask)
+    train_loader = BatchDataloader(traces, ages, bs=config_dict["batch_size"], mask=train_mask, transpose=True)
+    valid_loader = BatchDataloader(traces, ages, bs=config_dict["batch_size"], mask=valid_mask, transpose=True)
 
     tqdm.write("Done!")
 
@@ -84,7 +84,7 @@ if __name__ == "__main__":
     with torch.no_grad():
         var = torch.tensor([0.0])
         for data, ages in valid_loader:
-            data = data.to(device).transpose(1,2)
+            data = data.to(device)
             out_mean, out_var = laplace_model(data)
             var += out_var.cpu().sum()
         var/= len(valid_loader)
@@ -94,7 +94,7 @@ if __name__ == "__main__":
             ood_var = torch.tensor([0.0])
             for data, ages in valid_loader:
                 data += noise * torch.randn_like(data)
-                data = data.to(device).transpose(1,2)
+                data = data.to(device)
                 out_mean, out_var = laplace_model(data)
                 ood_var += out_var.cpu().sum()
             ood_var/= len(valid_loader)
@@ -103,7 +103,7 @@ if __name__ == "__main__":
         ood_var = torch.tensor([0.0])
         for data, ages in valid_loader:
             data = torch.flip(data, dims=[-1])
-            data = data.to(device).tranpose(1,2)
+            data = data.to(device)
             out_mean, out_var = laplace_model(data)
             ood_var += out_var.cpu().sum()
         ood_var/= len(valid_loader)
