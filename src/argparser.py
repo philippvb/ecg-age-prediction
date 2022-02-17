@@ -1,4 +1,5 @@
 import argparse
+from email.policy import default
 from warnings import warn    
 import json
 
@@ -6,11 +7,7 @@ def parse_ecg_args() -> dict:
     # Arguments that will be saved in config file
     parser = argparse.ArgumentParser(add_help=True,
                                      description='Train model to predict rage from the raw ecg tracing.')
-    parser.add_argument('path_to_traces',
-                        help='path to file containing ECG traces')
-    parser.add_argument('path_to_csv',
-                        help='path to csv file containing attributes.')
-    parser.add_argument('--epochs', type=int, default=1,
+    parser.add_argument('--epochs', type=int, default=70,
                         help='maximum number of epochs (default: 70)')
     parser.add_argument('--seed', type=int, default=2,
                         help='random seed for number generator (default: 2)')
@@ -23,10 +20,6 @@ def parse_ecg_args() -> dict:
                         help='multiplicative factor used to rescale inputs.')
     parser.add_argument('--batch_size', type=int, default=32,
                         help='batch size (default: 32).')
-    parser.add_argument('--valid_split', type=float, default=0.05,
-                        help='fraction of the data used for validation (default: 0.1).')
-    parser.add_argument('--test_split', type=float, default=0.15,
-                        help='fraction of the data kept away for testing in a latter stage (default: 0.1).')
     parser.add_argument('--lr', type=float, default=0.001,
                         help='learning rate (default: 0.001)')
     parser.add_argument("--patience", type=int, default=7,
@@ -47,20 +40,21 @@ def parse_ecg_args() -> dict:
                         help='output folder (default: ./out)')
     parser.add_argument('--traces_dset', default='tracings',
                         help='traces dataset in the hdf5 file.')
+    parser.add_argument('--ids_dset', default='',
+                        help='by default consider the ids are just the order')
     parser.add_argument('--age_col', default='age',
                         help='column with the age in csv file.')
-    parser.add_argument('--gpu_id', default='0',
-                        help='Which gpu to use.')
+    parser.add_argument('--ids_col', default=None,
+                        help='column with the ids in csv file.')
+    parser.add_argument('--cuda', action='store_true',
+                        help='use cuda for computations. (default: False)')
     parser.add_argument('--n_valid', type=int, default=100,
                         help='the first `n_valid` exams in the hdf will be for validation.'
-                             'The rest is for training') # how is this different from train/valid split above
-    parser.add_argument('--dataset_subset', default=0.001,
-                        help='Size of the subset of dataset to take')
-    parser.add_argument('--id_key', default="exam_id",
-                        help='Name of the exam column in dataset')                        
-    parser.add_argument('--tracings_key', default="tracings",
-                        help='Name of the tracings column in dataset')                        
-
+                             'The rest is for training')
+    parser.add_argument('path_to_traces',
+                        help='path to file containing ECG traces')
+    parser.add_argument('path_to_csv',
+                        help='path to csv file containing attributes.')
     args, unk = parser.parse_known_args()
     args = vars(args)
 
@@ -72,7 +66,8 @@ def parse_ecg_args() -> dict:
 def parse_ecg_json() -> dict:
     parser = argparse.ArgumentParser(add_help=True,
         description='Train model to predict rage from the raw ecg tracing.')
-    parser.add_argument('-f', default=None, help="Path to the json config file")
+    parser.add_argument('-f', default="", help="Path to the json config file")
+    parser.add_argument('-o', default="", help="Name of the output folder to write")
     args, unk = parser.parse_known_args()
     args = vars(args)
     # Check for unknown options
@@ -81,6 +76,9 @@ def parse_ecg_json() -> dict:
 
     if args["f"]:
         with open(args["f"], "r") as f:
-            args = json.load(f)
+            args.update(json.load(f))
+    if args["o"]:
+        args["output_foldername"] = args["o"]
+        
 
     return args
