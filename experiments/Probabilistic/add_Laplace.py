@@ -1,7 +1,7 @@
 
 # Imports
-import sys
-sys.path.append("/home/phba123/code/ecg-age-prediction")
+import sys, os
+sys.path.append(os.getcwd())
 from src.resnet import ResNet1d
 from tqdm import tqdm
 import h5py
@@ -49,7 +49,7 @@ if __name__ == "__main__":
     # how much of our dataset we actually use, on a scale from 0 to 1
     dataset = ECGAgeDataset(config_dict["path_to_traces"], config_dict["path_to_csv"],
      id_key=config_dict["id_key"], tracings_key=config_dict["tracings_key"],
-      size=0.001, add_weights=False)
+      size=0.01, add_weights=False)
     train_dataset_size = int(len(dataset) * (1 - config_dict["valid_split"]))
     dataset, _ = random_split(dataset, [train_dataset_size, len(dataset) - train_dataset_size])
     dataset_size = len(dataset)
@@ -60,17 +60,15 @@ if __name__ == "__main__":
     laplace_model = Laplace(model, "regression", subset_of_weights='last_layer', hessian_structure='full')
     laplace_model.fit(data_loader)
 
-    print("Estimating hyperparameters")
-    log_prior, log_sigma = torch.ones(1, requires_grad=True), torch.ones(1, requires_grad=True)
-    hyper_optimizer = torch.optim.Adam([log_prior, log_sigma], lr=1e-1)
-    for i in tqdm(range(10)):
-        hyper_optimizer.zero_grad()
-        neg_marglik = - laplace_model.log_marginal_likelihood(log_prior.exp(), log_sigma.exp())
-        neg_marglik.backward()
-        hyper_optimizer.step()
+    # print("Estimating hyperparameters")
+    # log_prior, log_sigma = torch.ones(1, requires_grad=True), torch.ones(1, requires_grad=True)
+    # hyper_optimizer = torch.optim.Adam([log_prior, log_sigma], lr=1e-1)
+    # for i in tqdm(range(10)):
+    #     hyper_optimizer.zero_grad()
+    #     neg_marglik = - laplace_model.log_marginal_likelihood(log_prior.exp(), log_sigma.exp())
+    #     neg_marglik.backward()
+    #     hyper_optimizer.step()
 
-    print(laplace_model.posterior_covariance)
-    print(laplace_model.sigma_noise.item())
 
     with torch.no_grad():
         var = torch.tensor([0.0])
@@ -79,37 +77,32 @@ if __name__ == "__main__":
             out_mean, out_var = laplace_model(data)
             var += out_var.cpu().sum()
         var/= dataset_size
-        print("Mean var is:", var)
+        print("Mean var is:", var.item())
 
-        ood_size = 128
-        ood_data = GaussianNoiseECGData(ood_size)
-        ood_loader = torch.utils.data.DataLoader(ood_data, batch_size=32)
-        # ood_data.tracings = ood_data.tracings.to(device)
-        # out_mean, out_var = laplace_model(ood_data.tracings)
-        var = torch.tensor([0.0])
-        for data, ages in ood_loader:
+        for noise in [0.1, 1, 10]:
+            ood_var = torch.tensor([0.0])
+            for data, ages in data_loader:
+                data += noise * torch.randn_like(data)
+                data = data.to(device)
+                out_mean, out_var = laplace_model(data)
+                ood_var += out_var.cpu().sum()
+            ood_var/= dataset_size
+            print(f"Mean var with noise of {noise} is:", ood_var.item())
+
+        ood_var = torch.tensor([0.0])
+        for data, ages in data_loader:
+            data = torch.flip(data, dims=[-1])
             data = data.to(device)
             out_mean, out_var = laplace_model(data)
-            var += out_var.cpu().sum()
-        var/= ood_size
-        print("Mean ood var is:", var)
+            ood_var += out_var.cpu().sum()
+        ood_var/= dataset_size
+        print(f"Mean var for flipped is:", ood_var.item())
+        
 
         import matplotlib.pyplot as plt
         fig, axs = plt.subplots(1)
         plot_calibration(laplace_model, data_loader, axs, device=device)
-        axs.set_xlim(0, var*3)
+        axs.set_xlim(0, 2 * var)
+        axs.set_xlabel("Confidence in form of standard deviation")
+        axs.set_ylabel("Absolut error")
         plt.savefig("laplace_calibration.png")
-
-    
-    
-
-    # # add Laplace
-    # laplace_set =ECGAgeDataset(args.path_to_traces, args.path_to_csv, device=device, id_key="id_exam", tracings_key="signal", size=dataset_subset, add_weights=False)
-    # laplace_loader = torch.utils.data.DataLoader(laplace_set, batch_size=args.batch_size)
-    # laplace_model = Laplace(model, "regression", subset_of_weights='last_layer', hessian_structure='full')
-    # laplace_model.fit(laplace_loader)
-
-
-# what would be good evaluations:
-#   - prediction error vs uncertainty, we should see that with higher error the uncertainty gets higher
-#   
