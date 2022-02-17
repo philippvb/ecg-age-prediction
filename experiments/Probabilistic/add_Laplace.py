@@ -49,7 +49,7 @@ if __name__ == "__main__":
     # how much of our dataset we actually use, on a scale from 0 to 1
     dataset = ECGAgeDataset(config_dict["path_to_traces"], config_dict["path_to_csv"],
      id_key=config_dict["id_key"], tracings_key=config_dict["tracings_key"],
-      size=config_dict["dataset_subset"], add_weights=False)
+      size=0.001, add_weights=False)
     train_dataset_size = int(len(dataset) * (1 - config_dict["valid_split"]))
     dataset, _ = random_split(dataset, [train_dataset_size, len(dataset) - train_dataset_size])
     dataset_size = len(dataset)
@@ -96,8 +96,8 @@ if __name__ == "__main__":
 
         import matplotlib.pyplot as plt
         fig, axs = plt.subplots(1)
-        plot_calibration(laplace_model, data_loader, axs)
-        axs.set_xlim(0, 0.5)
+        plot_calibration(laplace_model, data_loader, axs, device=device)
+        axs.set_xlim(0, var*3)
         plt.savefig("laplace_calibration.png")
 
     

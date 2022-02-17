@@ -19,7 +19,7 @@ def mae(ages:torch.Tensor, pred_ages:torch.Tensor, weights=None)->torch.Tensor:
         wmae = torch.sum(torch.abs(diff))
     return wmae
 
-def gaussian_nll(target: torch.Tensor, pred: torch.Tensor, pred_log_var: torch.Tensor, weights=None) -> torch.Tensor:
+def gaussian_nll(target: torch.Tensor, pred: torch.Tensor, pred_log_var: torch.Tensor, weights=None, cutoff=torch.Tensor([0.01, 100])) -> torch.Tensor:
     """Computes the sum of the batch negative log-likelihoods under a normal distribution: N(target, pred, pred_var). Scaling constants are dropped.
 
     Args:
@@ -31,8 +31,9 @@ def gaussian_nll(target: torch.Tensor, pred: torch.Tensor, pred_log_var: torch.T
     Returns:
         (torch.Tensor): The sum of the negative log_likelihoods over the batch
     """
+#    pred_log_var = torch.minimum(torch.maximum(torch.log(cutoff[0]), pred_log_var), torch.log(cutoff[1]))
     # we can drop the 0.5 since it is both in the exponent and in the sqrt for the first term
-    loss = 0.5 * (pred_log_var + torch.square(pred - target) / torch.exp(pred_log_var))
+    loss = target.shape[0] * pred_log_var + torch.square(pred - target) / torch.exp(pred_log_var)
     if torch.is_tensor(weights):
         return (weights * loss).mean()
     else:
