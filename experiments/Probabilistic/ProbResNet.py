@@ -4,12 +4,12 @@ import os, sys
 sys.path.append(os.getcwd())
 from tqdm import tqdm
 from src.resnet import ProbResNet1d
-from src.dataloader import ECGAgeDataset
-from torch.utils.data import DataLoader, random_split
+from src.dataloader import BatchDataloader, compute_weights
 import torch.optim as optim
 import numpy as np
 from datetime import datetime
 from src.loss_functions import mse, mae, gaussian_nll
+import h5py
 from src.argparser import parse_ecg_args, parse_ecg_json
 
 def train(ep, dataload, probabilistic=True):
@@ -24,6 +24,7 @@ def train(ep, dataload, probabilistic=True):
     train_bar = tqdm(initial=0, leave=True, total=len(dataload),
                      desc=train_desc.format(ep, 0, 0), position=0)
     for batch_idx, (traces, ages, weights) in enumerate(dataload):
+        traces = traces.transpose(1,2)
         traces, ages, weights = traces.to(device), ages.to(device), weights.to(device)
         # Reinitialize grad
         model.zero_grad()
@@ -95,7 +96,7 @@ if __name__ == "__main__":
     print(args)
     # Set device
     device = torch.device('cuda:' + args["gpu_id"] if torch.cuda.is_available() else 'cpu')
-    folder = args["folder"] + datetime.now().strftime("%y_%m_%d_%H_%M") + "/" # add date
+    folder = args["folder"] + args["output_foldername"]
 
     # Generate output folder if needed
     if not os.path.exists(folder):
@@ -105,13 +106,23 @@ if __name__ == "__main__":
         json.dump(args, f, indent='\t')
 
     tqdm.write("Building data loaders...")
-    dataset = ECGAgeDataset(args["path_to_traces"], args["path_to_csv"],
-     id_key=args["id_key"], tracings_key=args["tracings_key"],
-      size=args["dataset_subset"])
-    train_dataset_size = int(len(dataset) * (1 - args["valid_split"]))
-    train_set, valid_set = random_split(dataset, [train_dataset_size, len(dataset) - train_dataset_size])
-    train_loader = DataLoader(train_set, batch_size=args["batch_size"])
-    valid_loader = DataLoader(valid_set, batch_size=args["batch_size"])
+    # Get csv data
+    df = pd.read_csv(args["path_to_csv"], index_col=args["ids_col"])
+    ages = df[args["age_col"]]
+    # Get h5 data
+    f = h5py.File(args["path_to_traces"], 'r')
+    traces = f[args["traces_dset"]]
+    if args["ids_dset"]:
+        h5ids = f[args["ids_dset"]]
+        df = df.reindex(h5ids, fill_value=False, copy=True)
+    # Train/ val split
+    valid_mask = np.arange(len(df)) <= args["n_valid"]
+    train_mask = ~valid_mask
+    # weights
+    weights = compute_weights(ages)
+    # Dataloader
+    train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask)
+    valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask)
 
     tqdm.write("Done!")
 
