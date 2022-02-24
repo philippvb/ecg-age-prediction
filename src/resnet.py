@@ -150,17 +150,81 @@ class ResNet1d(nn.Module):
         return x
 
 
-class ProbResNet1d(ResNet1d):
-    def __init__(self, input_dim, blocks_dim, kernel_size=17, dropout_rate=0.8, weight_init_scale=0.1):
-        super().__init__(input_dim, blocks_dim, 2, kernel_size, dropout_rate)
-        torch.nn.init.uniform_(self.lin.weight, a=-weight_init_scale, b=weight_init_scale)
+class ProbResNet1d(nn.Module):
+    """Residual network for unidimensional signals.
+    Parameters
+    ----------
+    input_dim : tuple
+        Input dimensions. Tuple containing dimensions for the neural network
+        input tensor. Should be like: ``(n_filters, n_samples)``.
+    blocks_dim : list of tuples
+        Dimensions of residual blocks.  The i-th tuple should contain the dimensions
+        of the output (i-1)-th residual block and the input to the i-th residual
+        block. Each tuple shoud be like: ``(n_filters, n_samples)``. `n_samples`
+        for two consecutive samples should always decrease by an integer factor.
+    dropout_rate: float [0, 1), optional
+        Dropout rate used in all Dropout layers. Default is 0.8
+    kernel_size: int, optional
+        Kernel size for convolutional layers. The current implementation
+        only supports odd kernel sizes. Default is 17.
+    References
+    ----------
+    .. [1] K. He, X. Zhang, S. Ren, and J. Sun, "Identity Mappings in Deep Residual Networks,"
+           arXiv:1603.05027, Mar. 2016. https://arxiv.org/pdf/1603.05027.pdf.
+    .. [2] K. He, X. Zhang, S. Ren, and J. Sun, "Deep Residual Learning for Image Recognition," in 2016 IEEE Conference
+           on Computer Vision and Pattern Recognition (CVPR), 2016, pp. 770-778. https://arxiv.org/pdf/1512.03385.pdf
+    """
+
+    def __init__(self, input_dim, blocks_dim, kernel_size=17, dropout_rate=0.8):
+        super(ProbResNet1d, self).__init__()
+        # First layers
+        n_filters_in, n_filters_out = input_dim[0], blocks_dim[0][0]
+        n_samples_in, n_samples_out = input_dim[1], blocks_dim[0][1]
+        downsample = _downsample(n_samples_in, n_samples_out)
+        padding = _padding(downsample, kernel_size)
+        self.conv1 = nn.Conv1d(n_filters_in, n_filters_out, kernel_size, bias=False,
+                               stride=downsample, padding=padding)
+        self.bn1 = nn.BatchNorm1d(n_filters_out)
+        self.relu = nn.ReLU()
+
+        # Residual block layers
+        self.res_blocks = []
+        for i, (n_filters, n_samples) in enumerate(blocks_dim):
+            n_filters_in, n_filters_out = n_filters_out, n_filters
+            n_samples_in, n_samples_out = n_samples_out, n_samples
+            downsample = _downsample(n_samples_in, n_samples_out)
+            resblk1d = ResBlock1d(n_filters_in, n_filters_out, downsample, kernel_size, dropout_rate)
+            self.add_module('resblock1d_{0}'.format(i), resblk1d)
+            self.res_blocks += [resblk1d]
+
+        # Linear layer
+        self.n_blk = len(blocks_dim)
+        n_filters_last, n_samples_last = blocks_dim[-1]
+        last_layer_dim = n_filters_last * n_samples_last
+        self.lin_mean_1 = nn.Linear(last_layer_dim, last_layer_dim)
+        self.lin_mean_2 = nn.Linear(last_layer_dim, 1)
+        self.lin_log_var_1 = nn.Linear(last_layer_dim, last_layer_dim)
+        self.lin_log_var_2 = nn.Linear(last_layer_dim, 1)#
+        self.lin_relu = nn.ReLU()
 
     def forward(self, x):
-        output = super().forward(x)
-        # sigmoid to make std positive and in some scale
-        mean = output[:, 0]
-        log_var = output[:, 1]
-        return mean, log_var
+        """Implement ResNet1d forward propagation"""
+        # First layers
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+
+        # Residual blocks
+        y = x
+        for blk in self.res_blocks:
+            x, y = blk(x, y)
+
+        # Flatten array
+        x = x.view(x.size(0), -1)
+
+        # Fully connected layer
+        x_mean = self.lin_mean_2(self.lin_relu(self.lin_mean_1(x)))
+        x_log_var = self.lin_log_var_2(self.lin_relu(self.lin_log_var_1(x)))
+        return x_mean, x_log_var
 
         
-
