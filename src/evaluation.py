@@ -3,7 +3,7 @@ from src.dataloader import BatchDataloader
 import torch
 from src.loss_functions import *
 
-def eval(model, ep, dataload:BatchDataloader, device):
+def eval(model, ep, dataload:BatchDataloader, device, probabilistic=False):
     model.eval()
     n_entries = 0
 
@@ -21,7 +21,10 @@ def eval(model, ep, dataload:BatchDataloader, device):
         traces, ages, weights = traces.to(device), ages.to(device), weights.to(device)
         with torch.no_grad():
             # Forward pass
-            pred_ages, pred_ages_var = model(traces)
+            if probabilistic:
+                pred_ages, pred_ages_var = model(traces)
+            else:
+                pred_ages = model(traces)
             total_wmse += mse(ages, pred_ages, weights=weights, reduction=torch.sum).cpu().numpy()
             total_mse += mse(ages, pred_ages, weights=None, reduction=torch.sum).cpu().numpy()
             total_wmae += mae(ages, pred_ages, weights, reduction=torch.sum).cpu().numpy()

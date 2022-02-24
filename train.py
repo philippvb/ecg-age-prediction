@@ -10,12 +10,11 @@ from datetime import datetime
 from src.loss_functions import mse, mae
 from src.argparser import parse_ecg_args, parse_ecg_json
 import h5py
+from src.evaluation import eval
 
 def train(ep, dataload):
     model.train()
-    total_wmse = 0
-    total_mse = 0
-    total_wmae = 0
+    total_loss = 0
     n_entries = 0
     train_desc = "Epoch {:2d}: train - Loss: {:.6f}"
     train_bar = tqdm(initial=0, leave=True, total=len(dataload),
@@ -28,7 +27,7 @@ def train(ep, dataload):
         # Send to device
         # Forward pass
         pred_ages = model(traces)
-        loss = mse(ages, pred_ages, weights)
+        loss = mse(ages, pred_ages, weights, reduction=torch.mean)
         # Backward pass
         loss.backward()
         # Optimize
@@ -37,47 +36,20 @@ def train(ep, dataload):
         bs = len(traces)
         # calculate tracking metrics
         with torch.no_grad():
-            total_wmse += loss.detach().cpu().numpy()
-            total_mse += mse(ages, pred_ages, weights=None).cpu().numpy()
-            total_wmae += mae(ages, pred_ages, weights).cpu().numpy()
+            total_loss += loss.detach().cpu().numpy() * bs
 
         n_entries += bs
         # Update train bar
-        train_bar.desc = train_desc.format(ep, total_mse / n_entries)
+        train_bar.desc = train_desc.format(ep, total_loss / n_entries)
         train_bar.update(1)
     train_bar.close()
-    return total_wmse / n_entries, total_mse/n_entries, total_wmae/n_entries
-
-
-def eval(ep, dataload):
-    model.eval()
-    total_loss = 0
-    n_entries = 0
-    eval_desc = "Epoch {:2d}: valid - Loss: {:.6f}"
-    eval_bar = tqdm(initial=0, leave=True, total=len(dataload),
-                    desc=eval_desc.format(ep, 0, 0), position=0)
-    for traces, ages, weights in dataload:
-        traces, ages, weights = traces.to(device), ages.to(device), weights.to(device)
-        with torch.no_grad():
-            # Forward pass
-            pred_ages = model(traces)
-            loss = mse(ages, pred_ages, weights)
-            # Update outputs
-            bs = len(traces)
-            # Update ids
-            total_loss += loss.detach().cpu().numpy()
-            n_entries += bs
-            # Print result
-            eval_bar.desc = eval_desc.format(ep, total_loss / n_entries)
-            eval_bar.update(1)
-    eval_bar.close()
     return total_loss / n_entries
+
+
 
 
 if __name__ == "__main__":
     import pandas as pd
-    import argparse
-    from warnings import warn
     args = parse_ecg_json()
 
     torch.manual_seed(args["seed"])
@@ -105,7 +77,9 @@ if __name__ == "__main__":
         df = df.reindex(h5ids, fill_value=False, copy=True)
     # Train/ val split
     valid_mask = np.arange(len(df)) <= args["n_valid"]
-    train_mask = ~valid_mask
+    # take subset if wanted
+    if args["dataset_subset"] !=1:
+        train_mask = np.arange(len(df)) <= args["dataset_subset"] * len(traces)
     # weights
     weights = compute_weights(ages)
     # Dataloader
@@ -142,18 +116,18 @@ if __name__ == "__main__":
                                     'weighted_rmse', 'weighted_mae', 'rmse', 'mse'])
     for ep in range(start_epoch, args["epochs"]):
         # compute train loss and metrics
-        train_wmse, train_mse, train_wmae = train(ep, train_loader)
-        valid_loss = eval(ep, valid_loader)
+        train_wmse = train(ep, train_loader)
+        valid_mse, valid_wmse, valid_wmae = eval(model, ep, valid_loader, device)
         # Save best model
-        if valid_loss < best_loss:
+        if valid_wmse < best_loss:
             # Save model
             torch.save({'epoch': ep,
                         'model': model.state_dict(),
-                        'valid_loss': valid_loss,
+                        'valid_loss': valid_wmse,
                         'optimizer': optimizer.state_dict()},
                        os.path.join(folder, 'model.pth'))
             # Update best validation loss
-            best_loss = valid_loss
+            best_loss = valid_wmse
         # Get learning rate
         for param_group in optimizer.param_groups:
             learning_rate = param_group["lr"]
@@ -163,15 +137,15 @@ if __name__ == "__main__":
         # Print message
         tqdm.write('Epoch {:2d}: \tTrain Loss {:.6f} ' \
                   '\tValid Loss {:.6f} \tLearning Rate {:.7f}\t'
-                 .format(ep, train_wmse, valid_loss, learning_rate))
+                 .format(ep, train_wmse, valid_wmse, learning_rate))
         # Save history
         history = history.append({"epoch": ep, "train_loss": train_wmse,
-                                  "valid_loss": valid_loss, "lr": learning_rate,
-                                  "weighted_rmse": np.sqrt(train_wmse), "weighted_mae": train_wmae, "rmse": np.sqrt(train_mse),"mse": train_mse},
+                                  "valid_loss": valid_wmse, "lr": learning_rate,
+                                  "weighted_rmse": np.sqrt(valid_wmse), "weighted_mae": valid_wmae, "rmse": np.sqrt(valid_mse),"mse": valid_mse},
                                    ignore_index=True)
         history.to_csv(os.path.join(folder, 'history.csv'), index=False)
         # Update learning rate
-        scheduler.step(valid_loss)
+        scheduler.step(valid_wmse)
     tqdm.write("Done!")
 
 
