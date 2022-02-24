@@ -11,79 +11,60 @@ from datetime import datetime
 from src.loss_functions import mse, mae, gaussian_nll
 import h5py
 from src.argparser import parse_ecg_args, parse_ecg_json
+from src.evaluation import eval
 
 def train(ep, dataload, probabilistic=True):
     print("Training with probabilistic", probabilistic)
     model.train()
-    total_wmse = 0
-    total_mse = 0
-    total_wmae = 0
+
+    # tracking and pbar
     total_loss = 0
+    total_exponent = 0
+    total_log_var = 0
     n_entries = 0
-    train_desc = "Epoch {:2d}: train - Loss: {:.6f}"
+    train_desc = "Epoch {:2d}: train - Loss: {:.6f} Exp: {:.6f} Log_var {:.6f}"
     train_bar = tqdm(initial=0, leave=True, total=len(dataload),
-                     desc=train_desc.format(ep, 0, 0), position=0)
+                     desc=train_desc.format(ep, 0, 0, 0, 0), position=0)
+
     for batch_idx, (traces, ages, weights) in enumerate(dataload):
         traces = traces.transpose(1,2)
+        # Send to device
         traces, ages, weights = traces.to(device), ages.to(device), weights.to(device)
         # Reinitialize grad
         model.zero_grad()
-        # Send to device
+
         # Forward pass
         pred_ages, pred_ages_log_var = model(traces)
         if probabilistic:
-            loss = gaussian_nll(target=ages, pred=pred_ages, pred_log_var=pred_ages_log_var, weights=weights)
+            loss, exponent, log_var = gaussian_nll(target=ages, pred=pred_ages, pred_log_var=pred_ages_log_var, weights=None)
         else:
-            loss = mse(ages, pred_ages, weights)
+            loss = mse(ages, pred_ages, weights=None, reduction=torch.mean)
 
-        if batch_idx % 500 == 0:
-            print(torch.exp(pred_ages_log_var[:10]))
+        # check for nan values
         if torch.isnan(loss):
             raise ValueError("Loss is nan")
+
         # Backward pass
         loss.backward()
         # Optimize
         optimizer.step()
         # Update
         bs = len(traces)
+
         # calculate tracking metrics
         with torch.no_grad():
-            total_loss += loss.detach().cpu().numpy()
-            total_wmse += mse(ages, pred_ages, weights=weights).cpu().numpy()
-            total_mse += mse(ages, pred_ages, weights=None).cpu().numpy()
-            total_wmae += mae(ages, pred_ages, weights).cpu().numpy()
+            total_loss += loss.detach().cpu().numpy() * bs # since we took the mean to update we need to scale up again
+            if probabilistic:
+                total_exponent += exponent.detach().cpu().numpy() * bs
+                total_log_var += log_var.detach().cpu().numpy() * bs
 
         n_entries += bs
         # Update train bar
-        train_bar.desc = train_desc.format(ep, total_mse / n_entries)
+        train_bar.desc = train_desc.format(ep, total_loss / n_entries, total_exponent/n_entries, total_log_var/n_entries)
         train_bar.update(1)
     train_bar.close()
-    return total_loss/ n_entries, total_wmse / n_entries, total_mse/n_entries, total_wmae/n_entries
 
-
-def eval(ep, dataload):
-    model.eval()
-    total_loss = 0
-    n_entries = 0
-    eval_desc = "Epoch {:2d}: valid - Loss: {:.6f}"
-    eval_bar = tqdm(initial=0, leave=True, total=len(dataload),
-                    desc=eval_desc.format(ep, 0, 0), position=0)
-    for traces, ages, weights in dataload:
-        traces, ages, weights = traces.to(device), ages.to(device), weights.to(device)
-        with torch.no_grad():
-            # Forward pass
-            pred_ages, pred_ages_var = model(traces)
-            loss = mse(ages, pred_ages, weights)
-            # Update outputs
-            bs = len(traces)
-            # Update ids
-            total_loss += loss.detach().cpu().numpy()
-            n_entries += bs
-            # Print result
-            eval_bar.desc = eval_desc.format(ep, total_loss / n_entries)
-            eval_bar.update(1)
-    eval_bar.close()
-    return total_loss / n_entries
+    return total_loss/ n_entries
 
 
 if __name__ == "__main__":
@@ -117,7 +98,9 @@ if __name__ == "__main__":
         df = df.reindex(h5ids, fill_value=False, copy=True)
     # Train/ val split
     valid_mask = np.arange(len(df)) <= args["n_valid"]
-    train_mask = ~valid_mask
+    # take subset if wanted
+    if args["dataset_subset"] !=1:
+        train_mask = np.arange(len(df)) <= args["dataset_subset"] * len(traces)
     # weights
     weights = compute_weights(ages)
     # Dataloader
@@ -153,18 +136,18 @@ if __name__ == "__main__":
                                     'weighted_rmse', 'weighted_mae', 'rmse', 'mse'])
     for ep in range(start_epoch, args["epochs"]):
         # compute train loss and metrics
-        train_loss, train_wmse, train_mse, train_wmae = train(ep, train_loader, probabilistic=ep>5)
-        valid_loss = eval(ep, valid_loader)
+        train_loss = train(ep, train_loader, probabilistic=ep>args["burnin_epochs"])
+        valid_mse, valid_wmse, valid_wmae = eval(model, ep, valid_loader, device, probabilistic=True)
         # Save best model
-        if valid_loss < best_loss:
+        if valid_mse < best_loss:
             # Save model
             torch.save({'epoch': ep,
                         'model': model.state_dict(),
-                        'valid_loss': valid_loss,
+                        'valid_loss': valid_mse,
                         'optimizer': optimizer.state_dict()},
                        os.path.join(folder, 'model.pth'))
             # Update best validation loss
-            best_loss = valid_loss
+            best_loss = valid_mse
         # Get learning rate
         for param_group in optimizer.param_groups:
             learning_rate = param_group["lr"]
@@ -174,13 +157,13 @@ if __name__ == "__main__":
         # Print message
         tqdm.write('Epoch {:2d}: \tTrain Loss {:.6f} ' \
                   '\tValid Loss {:.6f} \tLearning Rate {:.7f}\t'
-                 .format(ep, train_loss, valid_loss, learning_rate))
+                 .format(ep, train_loss, valid_mse, learning_rate))
         # Save history
         history = history.append({"epoch": ep, "train_loss": train_loss,
-                                  "valid_loss": valid_loss, "lr": learning_rate,
-                                  "weighted_rmse": np.sqrt(train_wmse), "weighted_mae": train_wmae, "rmse": np.sqrt(train_mse),"mse": train_mse},
+                                  "valid_loss": valid_mse, "lr": learning_rate,
+                                  "weighted_rmse": np.sqrt(valid_wmse), "weighted_mae": valid_wmae, "rmse": np.sqrt(valid_mse),"mse": valid_mse},
                                    ignore_index=True)
         history.to_csv(os.path.join(folder, 'history.csv'), index=False)
         # Update learning rate
-        scheduler.step(valid_loss)
+        scheduler.step(valid_mse)
     tqdm.write("Done!")
