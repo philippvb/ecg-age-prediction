@@ -27,7 +27,7 @@ def train(ep, dataload):
         # Send to device
         # Forward pass
         pred_ages = model(traces)
-        loss = mse(ages, pred_ages, weights, reduction=torch.mean)
+        loss = mse(ages, pred_ages, weights=None, reduction=torch.sum)
         # Backward pass
         loss.backward()
         # Optimize
@@ -36,7 +36,7 @@ def train(ep, dataload):
         bs = len(traces)
         # calculate tracking metrics
         with torch.no_grad():
-            total_loss += loss.detach().cpu().numpy() * bs
+            total_loss += loss.detach().cpu().numpy()
 
         n_entries += bs
         # Update train bar
@@ -80,7 +80,7 @@ if __name__ == "__main__":
     # take subset if wanted
     if args["dataset_subset"] !=1:
         train_mask = np.arange(len(df)) <= args["dataset_subset"] * len(traces)
-    # weights
+    # weights, TODO: compute only for smaller train set
     weights = compute_weights(ages)
     # Dataloader
     train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask)
@@ -116,7 +116,7 @@ if __name__ == "__main__":
                                     'weighted_rmse', 'weighted_mae', 'rmse', 'mse'])
     for ep in range(start_epoch, args["epochs"]):
         # compute train loss and metrics
-        train_wmse = train(ep, train_loader)
+        train_loss = train(ep, train_loader)
         valid_mse, valid_wmse, valid_wmae = eval(model, ep, valid_loader, device)
         # Save best model
         if valid_wmse < best_loss:
@@ -137,9 +137,9 @@ if __name__ == "__main__":
         # Print message
         tqdm.write('Epoch {:2d}: \tTrain Loss {:.6f} ' \
                   '\tValid Loss {:.6f} \tLearning Rate {:.7f}\t'
-                 .format(ep, train_wmse, valid_wmse, learning_rate))
+                 .format(ep, train_loss, valid_wmse, learning_rate))
         # Save history
-        history = history.append({"epoch": ep, "train_loss": train_wmse,
+        history = history.append({"epoch": ep, "train_loss": train_loss,
                                   "valid_loss": valid_wmse, "lr": learning_rate,
                                   "weighted_rmse": np.sqrt(valid_wmse), "weighted_mae": valid_wmae, "rmse": np.sqrt(valid_mse),"mse": valid_mse},
                                    ignore_index=True)
