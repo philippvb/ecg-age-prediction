@@ -20,7 +20,6 @@ def train(ep, dataload):
     train_bar = tqdm(initial=0, leave=True, total=len(dataload),
                      desc=train_desc.format(ep, 0, 0), position=0)
     for traces, ages, weights in dataload:
-        traces = torch.transpose(traces, 1, 2)
         traces, ages, weights = traces.to(device), ages.to(device), weights.to(device)
         # Reinitialize grad
         model.zero_grad()
@@ -86,7 +85,7 @@ if __name__ == "__main__":
     tqdm.write("Done!")
 
     tqdm.write("Define model...")
-    N_LEADS = 12  # the 12 leads
+    N_LEADS = 8  # the 12 leads
     N_CLASSES = 1  # just the age
     model = ResNet1d(input_dim=(N_LEADS, args["seq_length"]),
                      blocks_dim=list(zip(args["net_filter_size"], args["net_seq_lengh"])),
