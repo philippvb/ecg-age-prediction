@@ -7,7 +7,7 @@ def eval(model, ep, dataload:BatchDataloader, device, probabilistic=False):
     model.eval()
     n_entries = 0
 
-    eval_desc = "Epoch {:2d}: valid - Loss: {:.6f}"
+    eval_desc = "Epoch {:2d}: valid - Loss(WMSE): {:.6f}"
     eval_bar = tqdm(initial=0, leave=True, total=len(dataload),
                     desc=eval_desc.format(ep, 0, 0), position=0)
 
@@ -32,7 +32,7 @@ def eval(model, ep, dataload:BatchDataloader, device, probabilistic=False):
             bs = len(traces)
             n_entries += bs
             # Print result
-            eval_bar.desc = eval_desc.format(ep, total_mse / n_entries)
+            eval_bar.desc = eval_desc.format(ep, total_wmse / n_entries)
             eval_bar.update(1)
 
     eval_bar.close()
