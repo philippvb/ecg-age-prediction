@@ -33,10 +33,8 @@ def gaussian_nll(target: torch.Tensor, pred: torch.Tensor, pred_log_var: torch.T
     """
     mse = torch.pow(target - pred, 2)
     exponent = torch.exp(-pred_log_var)*mse
-    loss = reduction(exponent + pred_log_var)
+    loss = exponent + pred_log_var
+    if torch.is_tensor(weights):
+        loss = weights * loss
+    loss = reduction(loss)
     return loss, reduction(exponent), reduction(pred_log_var)
-
-    # if torch.is_tensor(weights):
-    #     return (weights * loss).mean()
-    # else:
-    #     return loss.mean()
