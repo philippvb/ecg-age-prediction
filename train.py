@@ -80,12 +80,14 @@ if __name__ == "__main__":
     # take subset if wanted
     if args["dataset_subset"] !=1:
         train_mask = np.arange(len(df)) <= args["dataset_subset"] * len(traces)
+    else:
+        train_mask = ~valid_mask
     # weights, TODO: compute only for smaller train set
     weights = compute_weights(ages)
     # Dataloader
     train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask)
     valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask)
-
+    print(f"Training with {len(train_loader) * args['batch_size']} datapoints.")
     tqdm.write("Done!")
 
     tqdm.write("Define model...")

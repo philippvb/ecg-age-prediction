@@ -76,6 +76,8 @@ if __name__ == "__main__":
     # take subset if wanted
     if args["dataset_subset"] !=1:
         train_mask = np.arange(n_datapoints) <= args["dataset_subset"] * len(traces)
+    else:
+        train_mask = ~valid_mask
     # weights, TODO: compute only for smaller train set
     weights = compute_weights(ages)
     # Dataloader
