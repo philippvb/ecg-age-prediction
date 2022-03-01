@@ -3,13 +3,15 @@ from matplotlib.axes import Axes
 import torch
 
 @torch.no_grad()
-def plot_calibration(model, test_loader, axs, device, data_noise=0):
+def plot_calibration(model, test_loader, axs, device, data_noise=0, log_scale=False):
     errors = []
     confidences = []
     for index, (data, target) in enumerate(test_loader):
         target = target.to(device)
-        data = data.to(device).transpose(1,2)        
+        data = data.to(device)        
         pred_ages, pred_ages_var = model(data)
+        if log_scale:
+            pred_ages_var = pred_ages_var.exp()
         error = torch.abs(pred_ages - target)
         errors.append(error)
         confidences.append(pred_ages_var)
