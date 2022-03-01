@@ -16,6 +16,7 @@ from src.dataloader import  BatchDataloader, compute_weights, ECGAgeDataset
 from laplace import Laplace
 from torch.utils.data import DataLoader, random_split
 from src.plotting import plot_calibration
+from src.loss_functions import mse
 
 
 
@@ -51,8 +52,9 @@ if __name__ == "__main__":
     dataset = ECGAgeDataset(config_dict["path_to_traces"], config_dict["path_to_csv"],
      id_key=config_dict["ids_col"], tracings_key=config_dict["traces_dset"],
       size=0.01, add_weights=False)
-    train_dataset_size = int(len(dataset) * (1 - config_dict["valid_split"]))
-    train_set, valid_set = random_split(dataset, [train_dataset_size, len(dataset) - train_dataset_size])
+    train_dataset_size = len(dataset) - config_dict["n_valid"]
+    valid_dataset_size = config_dict["n_valid"]
+    train_set, valid_set = random_split(dataset, [train_dataset_size, valid_dataset_size])
     train_loader = DataLoader(dataset, batch_size=config_dict["batch_size"])
     valid_loader = DataLoader(valid_set, batch_size=config_dict["batch_size"])
 
@@ -74,13 +76,22 @@ if __name__ == "__main__":
 
 
     with torch.no_grad():
+
+        total_loss = 0
+        for data, ages in valid_loader:
+            data = data.to(device)
+            ages = ages.to(device)
+            total_loss += mse(ages, laplace_model(data)[0]).cpu()
+        total_loss /= valid_dataset_size
+        print(f"MSE on validation set is: {total_loss}")
+
         var = torch.tensor([0.0])
         for data, ages in valid_loader:
             data = data.to(device)
             out_mean, out_var = laplace_model(data)
             var += out_var.cpu().sum()
-        var/= len(valid_loader)
-        print("Mean var is:", var.item())
+        var/= valid_dataset_size
+        print("Mean std is:", var.sqrt().item())
 
         for noise in [0.1, 1, 10]:
             ood_var = torch.tensor([0.0])
@@ -89,8 +100,8 @@ if __name__ == "__main__":
                 data = data.to(device)
                 out_mean, out_var = laplace_model(data)
                 ood_var += out_var.cpu().sum()
-            ood_var/= len(valid_loader)
-            print(f"Mean var with noise of {noise} is:", ood_var.item())
+            ood_var/= valid_dataset_size
+            print(f"Mean std with noise of {noise} is:", ood_var.sqrt().item())
 
         ood_var = torch.tensor([0.0])
         for data, ages in valid_loader:
@@ -98,15 +109,16 @@ if __name__ == "__main__":
             data = data.to(device)
             out_mean, out_var = laplace_model(data)
             ood_var += out_var.cpu().sum()
-        ood_var/= len(valid_loader)
-        print(f"Mean var for flipped is:", ood_var.item())
+        ood_var/= valid_dataset_size
+        print(f"Mean std for flipped is:", ood_var.sqrt().item())
         
 
         import matplotlib.pyplot as plt
         fig, axs = plt.subplots(1, figsize=(10, 10))
         plot_calibration(laplace_model, valid_loader, axs, device=device, data_noise=laplace_model.sigma_noise.item()**2)
         axs.set_title("Calibration")
-        axs.set_xlim(0, 2 * var.sqrt())
+        ax_lim_std = (var + laplace_model.sigma_noise.item()**2).sqrt()
+        axs.set_xlim(ax_lim_std - 0.3, ax_lim_std + 1)
         axs.set_xlabel("Confidence in form of standard deviation")
         axs.set_ylabel("Absolut error")
         plt.savefig("laplace_calibration.png")
