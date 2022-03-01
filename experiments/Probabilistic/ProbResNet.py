@@ -136,18 +136,18 @@ if __name__ == "__main__":
                                     'weighted_rmse', 'weighted_mae', 'rmse', 'mse'])
     for ep in range(start_epoch, args["epochs"]):
         # compute train loss and metrics
-        train_loss = train(ep, train_loader, probabilistic=ep>args["burnin_epochs"])
+        train_loss = train(ep, train_loader, probabilistic=ep>=args["burnin_epochs"])
         valid_mse, valid_wmse, valid_wmae = eval(model, ep, valid_loader, device, probabilistic=True)
         # Save best model
-        if valid_mse < best_loss:
+        if valid_wmse < best_loss:
             # Save model
             torch.save({'epoch': ep,
                         'model': model.state_dict(),
-                        'valid_loss': valid_mse,
+                        'valid_loss': valid_wmse,
                         'optimizer': optimizer.state_dict()},
                        os.path.join(folder, 'model.pth'))
             # Update best validation loss
-            best_loss = valid_mse
+            best_loss = valid_wmse
         # Get learning rate
         for param_group in optimizer.param_groups:
             learning_rate = param_group["lr"]
@@ -157,13 +157,13 @@ if __name__ == "__main__":
         # Print message
         tqdm.write('Epoch {:2d}: \tTrain Loss {:.6f} ' \
                   '\tValid Loss {:.6f} \tLearning Rate {:.7f}\t'
-                 .format(ep, train_loss, valid_mse, learning_rate))
+                 .format(ep, train_loss, valid_wmse, learning_rate))
         # Save history
         history = history.append({"epoch": ep, "train_loss": train_loss,
-                                  "valid_loss": valid_mse, "lr": learning_rate,
+                                  "valid_loss": valid_wmse, "lr": learning_rate,
                                   "weighted_rmse": np.sqrt(valid_wmse), "weighted_mae": valid_wmae, "rmse": np.sqrt(valid_mse),"mse": valid_mse},
                                    ignore_index=True)
         history.to_csv(os.path.join(folder, 'history.csv'), index=False)
         # Update learning rate
-        scheduler.step(valid_mse)
+        scheduler.step(valid_wmse)
     tqdm.write("Done!")
