@@ -9,6 +9,50 @@ import torch
 import pandas as pd
 
 
+def load_dset_standard(args):
+    # Get csv data
+    df = pd.read_csv(args["path_to_csv"], index_col=args["ids_col"])
+    ages = df[args["age_col"]]
+    f = h5py.File(args["path_to_traces"], 'r')
+    traces = f[args["traces_dset"]]
+    if args["ids_dset"]:
+        h5ids = f[args["ids_dset"]]
+        df = df.reindex(h5ids, fill_value=False, copy=True)
+    # Train/ val split
+    valid_mask = np.arange(len(df)) <= args["n_valid"]
+    # take subset if wanted
+    if args["dataset_subset"] !=1:
+        train_mask = np.arange(len(df)) <= args["dataset_subset"] * len(traces)
+    else:
+        train_mask = ~valid_mask
+    # weights, TODO: compute only for smaller train set
+    weights = compute_weights(ages)
+    # Dataloader
+    train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask)
+    valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask)
+    return train_loader, valid_loader
+
+def load_dset_bianca(args):
+    f = h5py.File(args["path_to_traces"], 'r')
+    traces = f[args["traces_dset"]]
+    ages = f[args["age_col"]]
+    n_datapoints = len(traces)
+    
+    # Train/ val split
+    valid_mask = np.arange(n_datapoints) <= args["n_valid"]
+    # take subset if wanted
+    if args["dataset_subset"] !=1:
+        train_mask = np.arange(n_datapoints) <= args["dataset_subset"] * len(traces)
+    else:
+        train_mask = ~valid_mask
+    # weights, TODO: compute only for smaller train set
+    weights = compute_weights(ages)
+    # Dataloader
+    train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask)
+    valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask)
+    return train_loader, valid_loader
+
+
 class BatchTensors(Sequence):
     def __init__(self, *tensors, bs=4, mask=None):
         self.tensors = tensors

@@ -3,13 +3,11 @@ import torch
 import os
 from tqdm import tqdm
 from src.resnet import ResNet1d
-from src.dataloader import BatchDataloader, compute_weights
+from src.dataloader import load_dset_bianca
 import torch.optim as optim
 import numpy as np
-from datetime import datetime
-from src.loss_functions import mse, mae
-from src.argparser import parse_ecg_args, parse_ecg_json
-import h5py
+from src.loss_functions import mse
+from src.argparser import parse_ecg_json
 from src.evaluation import eval
 
 def train(ep, dataload):
@@ -63,26 +61,8 @@ if __name__ == "__main__":
     # Save config file
     with open(os.path.join(folder, 'args.json'), 'w') as f:
         json.dump(args, f, indent='\t')
-
+    train_loader, valid_loader = load_dset_bianca(args)
     tqdm.write("Building data loaders...")
-    # Get h5 data
-    f = h5py.File(args["path_to_traces"], 'r')
-    traces = f[args["traces_dset"]]
-    ages = f[args["age_col"]]
-    n_datapoints = len(traces)
-    
-    # Train/ val split
-    valid_mask = np.arange(n_datapoints) <= args["n_valid"]
-    # take subset if wanted
-    if args["dataset_subset"] !=1:
-        train_mask = np.arange(n_datapoints) <= args["dataset_subset"] * len(traces)
-    else:
-        train_mask = ~valid_mask
-    # weights, TODO: compute only for smaller train set
-    weights = compute_weights(ages)
-    # Dataloader
-    train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask)
-    valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask)
 
     tqdm.write("Done!")
 
