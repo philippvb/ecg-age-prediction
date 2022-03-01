@@ -207,8 +207,30 @@ class ProbResNet1d(nn.Module):
         self.lin_log_var_2 = nn.Linear(last_layer_dim, 1)#
         self.lin_relu = nn.ReLU()
 
+    def reformat_Laplace(self):
+        self.forward = self.forward_mean
+
     def forward(self, x):
         """Implement ResNet1d forward propagation"""
+        x = self.features(x)
+        # Fully connected layer
+        return self.features_to_mean(x), self.features_to_log_var(x)
+
+    def features_to_mean(self, x):
+        return self.lin_mean_2(self.lin_relu(self.lin_mean_1(x)))
+
+    def features_to_log_var(self, x):
+        return self.lin_log_var_2(self.lin_relu(self.lin_log_var_1(x)))
+
+    def forward_mean(self, x):
+        x = self.features(x)
+        return self.features_to_mean(x)
+
+    def forward_log_var(self, x):
+        x = self.features(x)
+        return self.features_to_log_var(x)
+
+    def features(self, x):
         # First layers
         x = self.conv1(x)
         x = self.bn1(x)
@@ -221,10 +243,6 @@ class ProbResNet1d(nn.Module):
 
         # Flatten array
         x = x.view(x.size(0), -1)
-
-        # Fully connected layer
-        x_mean = self.lin_mean_2(self.lin_relu(self.lin_mean_1(x)))
-        x_log_var = self.lin_log_var_2(self.lin_relu(self.lin_log_var_1(x)))
-        return x_mean, x_log_var
+        return x
 
         
