@@ -4,7 +4,7 @@ import os, sys
 sys.path.append(os.getcwd())
 from tqdm import tqdm
 from src.resnet import ProbResNet1d
-from src.dataloader import BatchDataloader, compute_weights
+from src.dataloader import load_dset_bianca, load_dset_standard
 import torch.optim as optim
 import numpy as np
 from datetime import datetime
@@ -88,24 +88,10 @@ if __name__ == "__main__":
 
     tqdm.write("Building data loaders...")
     # Get csv data
-    df = pd.read_csv(args["path_to_csv"], index_col=args["ids_col"])
-    ages = df[args["age_col"]]
-    # Get h5 data
-    f = h5py.File(args["path_to_traces"], 'r')
-    traces = f[args["traces_dset"]]
-    if args["ids_dset"]:
-        h5ids = f[args["ids_dset"]]
-        df = df.reindex(h5ids, fill_value=False, copy=True)
-    # Train/ val split
-    valid_mask = np.arange(len(df)) <= args["n_valid"]
-    # take subset if wanted
-    if args["dataset_subset"] !=1:
-        train_mask = np.arange(len(df)) <= args["dataset_subset"] * len(traces)
-    # weights
-    weights = compute_weights(ages)
-    # Dataloader
-    train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask)
-    valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask)
+    if args["bianca"]:
+        train_loader, valid_loader = load_dset_bianca(args)
+    else:
+        train_loader, valid_loader = load_dset_standard(args)
 
     tqdm.write("Done!")
 
