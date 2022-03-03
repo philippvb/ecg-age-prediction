@@ -295,10 +295,49 @@ class ProbResNet1d(NeuralNetwork):
         # forward pass
         pred_ages, pred_ages_var = self(traces)
         if torch.is_tensor(weights):
-            loss = gaussian_nll(target, pred_ages, pred_ages_var, weights=weights, reduction=torch.sum)
+            loss, exp, log_var = gaussian_nll(target, pred_ages, pred_ages_var, weights=weights, reduction=torch.sum)
         else:
-            loss = gaussian_nll(target, pred_ages, pred_ages_var, weights=None, reduction=torch.sum)
+            loss, exp, log_var = gaussian_nll(target, pred_ages, pred_ages_var, weights=None, reduction=torch.sum)
 
-        return loss
+        return loss      
 
-        
+    def evaluate(self, ep, dataload:BatchDataloader, device):
+        """For now same as Normal however change to better method
+
+        Args:
+            ep (_type_): _description_
+            dataload (BatchDataloader): _description_
+            device (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        self.eval()
+        n_entries = 0
+
+        eval_desc = "Epoch {:2d}: valid - Loss(WMSE): {:.6f}"
+        eval_bar = tqdm(initial=0, leave=True, total=len(dataload),
+                        desc=eval_desc.format(ep, 0, 0), position=0)
+
+        # tracking
+        total_mse = 0
+        total_wmse = 0
+        total_wmae = 0
+
+        for traces, ages, weights in dataload:
+            traces, ages, weights = traces.to(device), ages.to(device), weights.to(device)
+
+            with torch.no_grad():
+                pred_ages, _ = self(traces)
+                total_wmse += mse(ages, pred_ages, weights=weights, reduction=torch.sum).cpu().numpy()
+                total_mse += mse(ages, pred_ages, weights=None, reduction=torch.sum).cpu().numpy()
+                total_wmae += mae(ages, pred_ages, weights, reduction=torch.sum).cpu().numpy()
+                # Update outputs
+                bs = len(traces)
+                n_entries += bs
+                # Print result
+                eval_bar.desc = eval_desc.format(ep, total_wmse / n_entries)
+                eval_bar.update(1)
+
+        eval_bar.close()
+        return total_mse / n_entries, total_wmse / n_entries, total_wmae /n_entries

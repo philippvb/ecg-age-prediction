@@ -24,7 +24,7 @@ class NeuralNetwork(nn.Module):
         raise NotImplementedError
 
     def foward(self, x:torch.Tensor) -> torch.Tensor:
-        raise NotImplemented
+        raise NotImplementedError
 
     def train_epoch(self, dataload:BatchDataloader, ep, device, weighted=True):
         if not self.optimizer:
