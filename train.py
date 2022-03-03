@@ -10,22 +10,32 @@ from src.loss_functions import mse
 from src.argparser import  parse_ecg_json
 from src.evaluation import eval
 
-def train(ep, dataload):
+def train(ep, dataload, weighted=True):
     model.train()
     total_loss = 0
     n_entries = 0
-    train_desc = "Epoch {:2d}: train - Loss: {:.6f}"
+    loss_name = "WMSE" if weighted else "MSE"
+    train_desc = "Epoch {:2d}: train - Loss(" + loss_name + "): {:.6f}"
     train_bar = tqdm(initial=0, leave=True, total=len(dataload),
                      desc=train_desc.format(ep, 0, 0), position=0)
-    for traces, ages, weights in dataload:
-        traces = torch.transpose(traces, 1, 2)
-        traces, ages, weights = traces.to(device), ages.to(device), weights.to(device)
+
+    for batch in dataload:
+        if weighted:
+            traces, ages, weights = batch
+            traces, ages, weights = traces.to(device), ages.to(device), weights.to(device)
+        else:
+            traces, ages = batch
+            traces, ages = traces.to(device), ages.to(device)
+
         # Reinitialize grad
         model.zero_grad()
         # Send to device
         # Forward pass
         pred_ages = model(traces)
-        loss = mse(ages, pred_ages, weights=None, reduction=torch.sum)
+        if weighted:
+            loss = mse(ages, pred_ages, weights=weights, reduction=torch.sum)
+        else:
+            loss = mse(ages, pred_ages, weights=None, reduction=torch.sum)
         # Backward pass
         loss.backward()
         # Optimize
@@ -65,16 +75,16 @@ if __name__ == "__main__":
 
     tqdm.write("Building data loaders...")
     if args["bianca"]:
-        train_loader, valid_loader = load_dset_bianca(args)
+        train_loader, valid_loader = load_dset_bianca(args, use_weights=args["use_weights"])
     else:
-        train_loader, valid_loader = load_dset_standard(args)
+        train_loader, valid_loader = load_dset_standard(args, use_weights=args["use_weights"])
 
     # Get h5 data
     print(f"Training with {len(train_loader) * args['batch_size']} datapoints.")
     tqdm.write("Done!")
 
     tqdm.write("Define model...")
-    N_LEADS = 12  # the 12 leads
+    N_LEADS = args["n_leads"]
     N_CLASSES = 1  # just the age
     model = ResNet1d(input_dim=(N_LEADS, args["seq_length"]),
                      blocks_dim=list(zip(args["net_filter_size"], args["net_seq_lengh"])),
@@ -101,7 +111,7 @@ if __name__ == "__main__":
                                     'weighted_rmse', 'weighted_mae', 'rmse', 'mse'])
     for ep in range(start_epoch, args["epochs"]):
         # compute train loss and metrics
-        train_loss = train(ep, train_loader)
+        train_loss = train(ep, train_loader, weighted=args["use_weights"])
         valid_mse, valid_wmse, valid_wmae = eval(model, ep, valid_loader, device)
         # Save best model
         if valid_wmse < best_loss:
@@ -118,6 +128,7 @@ if __name__ == "__main__":
             learning_rate = param_group["lr"]
         # Interrupt for minimum learning rate
         if learning_rate < args["min_lr"]:
+            print("Minimum learning rate is reached.")
             break
         # Print message
         tqdm.write('Epoch {:2d}: \tTrain Loss {:.6f} ' \
@@ -125,7 +136,7 @@ if __name__ == "__main__":
                  .format(ep, train_loss, valid_wmse, learning_rate))
         # Save history
         history = history.append({"epoch": ep, "train_loss": train_loss,
-                                  "valid_loss": valid_wmse, "lr": learning_rate,
+                                  "valid_weighted_mse": valid_wmse, "lr": learning_rate,
                                   "weighted_rmse": np.sqrt(valid_wmse), "weighted_mae": valid_wmae, "rmse": np.sqrt(valid_mse),"mse": valid_mse},
                                    ignore_index=True)
         history.to_csv(os.path.join(folder, 'history.csv'), index=False)
