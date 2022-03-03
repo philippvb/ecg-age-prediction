@@ -80,6 +80,9 @@ class NeuralNetwork(nn.Module):
     def load(self, path):
         ckpt = torch.load(os.path.join(path, 'model.pth'), map_location=lambda storage, loc: storage)
         self.load_state_dict(ckpt["model"])
-        self.optimizer.load_state_dict(ckpt["optimizer"])
+        if not self.optimizer:
+            print("Optimizer not initialized, therefore skipping loading of state dict")
+        else:
+            self.optimizer.load_state_dict(ckpt["optimizer"])
 
 

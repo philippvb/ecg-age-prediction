@@ -2,7 +2,7 @@
 # Imports
 import sys, os
 sys.path.append(os.getcwd())
-from src.resnet import ResNet1d
+from src.models.resnet import ResNet1d
 from tqdm import tqdm
 import h5py
 import torch
@@ -30,7 +30,7 @@ if __name__ == "__main__":
         warn("Unknown arguments:" + str(unk) + ".")
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     # Get checkpoint
-    ckpt = torch.load(os.path.join(args.mdl, 'model.pth'), map_location=lambda storage, loc: storage)
+    # ckpt = torch.load(os.path.join(args.mdl, 'model.pth'), map_location=lambda storage, loc: storage)
     # Get config
     config = os.path.join(args.mdl, 'args.json')
     with open(config, 'r') as f:
@@ -43,7 +43,8 @@ if __name__ == "__main__":
                      kernel_size=config_dict['kernel_size'],
                      dropout_rate=config_dict['dropout_rate'])
     # load model checkpoint
-    model.load_state_dict(ckpt["model"])
+    # model.load_state_dict(ckpt["model"])
+    model.load(args.mdl)
     model = model.to(device)
 
     print("Loading data")
@@ -51,9 +52,9 @@ if __name__ == "__main__":
     # how much of our dataset we actually use, on a scale from 0 to 1
     dataset = ECGAgeDataset(config_dict["path_to_traces"], config_dict["path_to_csv"],
      id_key=config_dict["ids_col"], tracings_key=config_dict["traces_dset"],
-      size=0.01, add_weights=False)
-    train_dataset_size = len(dataset) - config_dict["n_valid"]
-    valid_dataset_size = config_dict["n_valid"]
+      size=config_dict["train_split"], add_weights=False)
+    train_dataset_size = int(len(dataset) * (1-config_dict["valid_split"]))
+    valid_dataset_size = int(len(dataset) - train_dataset_size)
     train_set, valid_set = random_split(dataset, [train_dataset_size, valid_dataset_size])
     train_loader = DataLoader(dataset, batch_size=config_dict["batch_size"])
     valid_loader = DataLoader(valid_set, batch_size=config_dict["batch_size"])
