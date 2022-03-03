@@ -8,80 +8,116 @@ import numpy as np
 import torch
 import pandas as pd
 
+MIN_TRAIN_SET_SIZE = 1000 # the minimum size of the dataset before weight computation could become instable
+
 
 def load_dset_standard(args, use_weights=True):
-    # Get csv data
+    """Loads the dataset given in brazilian format, that is hdf5 for traces and csv for ages. Splits into train and valid
+
+    Args:
+        args (dict): The arguments for loading, normally coming from the config.json. Following parameters are needed:
+            - path_to_csv: Path to the age csv file
+            - ids_col: Name for the (patient) ids column in the csv
+            - age_col: Name for the age column in the csv
+            - path_to_traces: Path to the traces hdf5 file
+            - traces_dset: Name for the traces column 
+            - ids_dset: Name for the (patient) ids column in the traces file
+            - train_split: How much of the dataset to use for training, on a scale from 0 to 1 (dataset_subset)
+            - valid_split: How much of the dataset to use for validation, on a scale from 0 to 1 (n_valid)
+        use_weights (bool, optional): Wether to add the weights to the train_loader (always in valid_loader). Defaults to True.
+
+    Returns:
+        tuple(BatchDataloader, BatchDataloader): The train and validation set
+    """
+    # Get age data in csv
     df = pd.read_csv(args["path_to_csv"], index_col=args["ids_col"])
     ages = df[args["age_col"]]
+
+    # get traces
     f = h5py.File(args["path_to_traces"], 'r')
     traces = f[args["traces_dset"]]
+    
+    # check dimensions
+    if len(ages) != len(traces):
+        print("Warning: Length between ages and traces doesn't seem to match")
+        if len(ages) < len(traces):
+            raise ValueError("Ages csv contains less datapoints than traces")
+
+    # if we have ids in dset, check that indexes match
     if args["ids_dset"]:
         h5ids = f[args["ids_dset"]]
         df = df.reindex(h5ids, fill_value=False, copy=True)
+
+    
     # Train/ val split
-    valid_mask = np.arange(len(df)) < args["n_valid"]
-    # take subset if wanted
-    if args["dataset_subset"] !=1:
-        train_mask = np.arange(len(df)) <= args["dataset_subset"] * len(traces)
+    total_length = len(traces)
+    valid_mask = np.arange(len(df)) > (total_length * (1 - args["valid_split"]))
+    # check total split:
+    if args["valid_split"] + args["train_split"] > 1:
+        raise ValueError("Sum of train and valid split is larger than 1")
+    # take subset if needed, else just take whole remaining
+    if args["train_split"] !=1:
+        train_mask = np.arange(len(df)) <= args["train_split"] * total_length
     else:
         train_mask = ~valid_mask
-    # weights, TODO: compute only for smaller train set
+
+    # define dataloader
     weights = compute_weights(ages)
-    # Dataloader
+    # for validation we always want weights
+    valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask, transpose=True)
     if use_weights:
+        if args["train_split"] * total_length < MIN_TRAIN_SET_SIZE:
+            print("Warning: Dataset size seems very small, weights could be inaccurate")
         train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask, transpose=True)
-        valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask, transpose=True)
     else:
         train_loader = BatchDataloader(traces, ages, bs=args["batch_size"], mask=train_mask, transpose=True)
-        valid_loader = BatchDataloader(traces, ages, bs=args["batch_size"], mask=valid_mask, transpose=True)
     return train_loader, valid_loader
 
 def load_dset_bianca(args, use_weights=True):
+    """Loads the dataset given in swedish format, that is hdf5 for both traces and ages. Splits into train and valid
+
+    Args:
+        args (dict): The arguments for loading, normally coming from the config.json. Following parameters are needed:
+            - path_to_traces: Path to the traces hdf5 file
+            - age_col: Name for the age column 
+            - traces_dset: Name for the traces column
+            - train_split: How much of the dataset to use for training, on a scale from 0 to 1 (dataset_subset)
+            - valid_split: How much of the dataset to use for validation, on a scale from 0 to 1 (n_valid)
+        use_weights (bool, optional): Wether to add the weights to the dataset. Defaults to True.
+
+    Returns:
+        tuple(BatchDataloader, BatchDataloader): The train and validation set
+    """
     f = h5py.File(args["path_to_traces"], 'r')
     traces = f[args["traces_dset"]]
     ages = f[args["age_col"]]
     n_datapoints = len(traces)
     
     # Train/ val split
-    valid_mask = np.arange(n_datapoints) <= args["n_valid"]
-    # take subset if wanted
-    if args["dataset_subset"] !=1:
-        train_mask = np.arange(n_datapoints) <= args["dataset_subset"] * len(traces)
+    if args["valid_split"] + args["train_split"] > 1:
+        raise ValueError("Sum of train and valid split is larger than 1")
+
+    valid_mask = np.arange(n_datapoints) > (n_datapoints * (1 - args["valid_split"]))
+    # take subset if needed, else just take whole remaining
+    if args["train_split"] !=1:
+        train_mask = np.arange(n_datapoints) <= args["train_split"] * n_datapoints
     else:
         train_mask = ~valid_mask
-    # weights, TODO: compute only for smaller train set
-    weights = compute_weights(ages)
+
     # Dataloader
     if use_weights:
+        if args["train_split"] * n_datapoints < MIN_TRAIN_SET_SIZE:
+            print("Warning: Dataset size seems very small, weights could be inaccurate")
+        weights = compute_weights(ages)
         train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask)
         valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask)
     else:
         train_loader = BatchDataloader(traces, ages, bs=args["batch_size"], mask=train_mask)
         valid_loader = BatchDataloader(traces, ages, bs=args["batch_size"], mask=valid_mask)
+
     return train_loader, valid_loader
 
 
-class BatchTensors(Sequence):
-    def __init__(self, *tensors, bs=4, mask=None):
-        self.tensors = tensors
-        self.l = len(tensors[0])
-        self.bs = bs
-        if mask is None:
-            self.mask = np.ones(self.l, dtype=bool)
-        else:
-            self.mask = np.array(mask, dtype=bool)
-
-    def __getitem__(self, idx):
-        index = np.cumsum(self.mask)
-        start = idx * self.bs
-        end = min(start + self.bs, self.l)
-        if end - start <= 0:
-            raise IndexError
-        batch_mask = np.where((start <= index) & (index < end), self.mask, False)
-        return [torch.from_numpy(np.array(t[batch_mask])).to(torch.float32) for t in self.tensors]
-
-    def __len__(self):
-        return math.ceil(sum(self.mask) / self.bs)
 
 class ECGAgeDataset(TensorDataset):
     def __init__(self, tracing_filepath, metadata_filepath, size=1, id_key="exam_id", tracings_key="tracings", add_weights=True) -> None:

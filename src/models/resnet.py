@@ -1,7 +1,8 @@
 import torch.nn as nn
 import torch
 import numpy as np
-
+from src.models import *
+from src.loss_functions import mse, gaussian_nll, mae
 
 def _padding(downsample, kernel_size):
     """Compute required padding"""
@@ -77,7 +78,9 @@ class ResBlock1d(nn.Module):
         return x, y
 
 
-class ResNet1d(nn.Module):
+
+
+class ResNet1d(NeuralNetwork):
     """Residual network for unidimensional signals.
     Parameters
     ----------
@@ -103,7 +106,7 @@ class ResNet1d(nn.Module):
     """
 
     def __init__(self, input_dim, blocks_dim, n_classes, kernel_size=17, dropout_rate=0.8):
-        super(ResNet1d, self).__init__()
+        super(ResNet1d, self).__init__(loss_name="MSE")
         # First layers
         n_filters_in, n_filters_out = input_dim[0], blocks_dim[0][0]
         n_samples_in, n_samples_out = input_dim[1], blocks_dim[0][1]
@@ -149,8 +152,50 @@ class ResNet1d(nn.Module):
         x = self.lin(x)
         return x
 
+    def compute_loss(self, traces: torch.Tensor, target: torch.Tensor, weights: torch.Tensor, reduction=torch.sum) -> torch.Tensor:
+        # forward pass
+        pred_ages = self(traces)
+        if torch.is_tensor(weights):
+            loss = mse(target, pred_ages, weights=weights, reduction=torch.sum)
+        else:
+            loss = mse(target, pred_ages, weights=None, reduction=torch.sum)
+        return loss
 
-class ProbResNet1d(nn.Module):
+    def evaluate(self, ep, dataload:BatchDataloader, device):
+        self.eval()
+        n_entries = 0
+
+        eval_desc = "Epoch {:2d}: valid - Loss(WMSE): {:.6f}"
+        eval_bar = tqdm(initial=0, leave=True, total=len(dataload),
+                        desc=eval_desc.format(ep, 0, 0), position=0)
+
+        # tracking
+        total_mse = 0
+        total_wmse = 0
+        total_wmae = 0
+
+        for traces, ages, weights in dataload:
+            traces, ages, weights = traces.to(device), ages.to(device), weights.to(device)
+
+            with torch.no_grad():
+                pred_ages = self(traces)
+                total_wmse += mse(ages, pred_ages, weights=weights, reduction=torch.sum).cpu().numpy()
+                total_mse += mse(ages, pred_ages, weights=None, reduction=torch.sum).cpu().numpy()
+                total_wmae += mae(ages, pred_ages, weights, reduction=torch.sum).cpu().numpy()
+                # Update outputs
+                bs = len(traces)
+                n_entries += bs
+                # Print result
+                eval_bar.desc = eval_desc.format(ep, total_wmse / n_entries)
+                eval_bar.update(1)
+
+        eval_bar.close()
+        return total_mse / n_entries, total_wmse / n_entries, total_wmae /n_entries
+
+
+
+
+class ProbResNet1d(NeuralNetwork):
     """Residual network for unidimensional signals.
     Parameters
     ----------
@@ -176,7 +221,7 @@ class ProbResNet1d(nn.Module):
     """
 
     def __init__(self, input_dim, blocks_dim, kernel_size=17, dropout_rate=0.8):
-        super(ProbResNet1d, self).__init__()
+        super(ProbResNet1d, self).__init__(loss_name="NLL")
         # First layers
         n_filters_in, n_filters_out = input_dim[0], blocks_dim[0][0]
         n_samples_in, n_samples_out = input_dim[1], blocks_dim[0][1]
@@ -206,6 +251,7 @@ class ProbResNet1d(nn.Module):
         self.lin_log_var_1 = nn.Linear(last_layer_dim, last_layer_dim)
         self.lin_log_var_2 = nn.Linear(last_layer_dim, 1)#
         self.lin_relu = nn.ReLU()
+
 
     def reformat_Laplace(self):
         self.forward = self.forward_mean
@@ -244,5 +290,15 @@ class ProbResNet1d(nn.Module):
         # Flatten array
         x = x.view(x.size(0), -1)
         return x
+
+    def compute_loss(self, traces: torch.Tensor, target: torch.Tensor, weights: torch.Tensor, reduction=torch.sum) -> torch.Tensor:
+        # forward pass
+        pred_ages, pred_ages_var = self(traces)
+        if torch.is_tensor(weights):
+            loss = gaussian_nll(target, pred_ages, pred_ages_var, weights=weights, reduction=torch.sum)
+        else:
+            loss = gaussian_nll(target, pred_ages, pred_ages_var, weights=None, reduction=torch.sum)
+
+        return loss
 
         
