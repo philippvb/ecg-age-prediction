@@ -9,7 +9,7 @@ import torch
 import pandas as pd
 
 
-def load_dset_standard(args):
+def load_dset_standard(args, use_weights=True):
     # Get csv data
     df = pd.read_csv(args["path_to_csv"], index_col=args["ids_col"])
     ages = df[args["age_col"]]
@@ -19,7 +19,7 @@ def load_dset_standard(args):
         h5ids = f[args["ids_dset"]]
         df = df.reindex(h5ids, fill_value=False, copy=True)
     # Train/ val split
-    valid_mask = np.arange(len(df)) <= args["n_valid"]
+    valid_mask = np.arange(len(df)) < args["n_valid"]
     # take subset if wanted
     if args["dataset_subset"] !=1:
         train_mask = np.arange(len(df)) <= args["dataset_subset"] * len(traces)
@@ -28,11 +28,15 @@ def load_dset_standard(args):
     # weights, TODO: compute only for smaller train set
     weights = compute_weights(ages)
     # Dataloader
-    train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask)
-    valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask)
+    if use_weights:
+        train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask, transpose=True)
+        valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask, transpose=True)
+    else:
+        train_loader = BatchDataloader(traces, ages, bs=args["batch_size"], mask=train_mask, transpose=True)
+        valid_loader = BatchDataloader(traces, ages, bs=args["batch_size"], mask=valid_mask, transpose=True)
     return train_loader, valid_loader
 
-def load_dset_bianca(args):
+def load_dset_bianca(args, use_weights=True):
     f = h5py.File(args["path_to_traces"], 'r')
     traces = f[args["traces_dset"]]
     ages = f[args["age_col"]]
@@ -48,8 +52,12 @@ def load_dset_bianca(args):
     # weights, TODO: compute only for smaller train set
     weights = compute_weights(ages)
     # Dataloader
-    train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask)
-    valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask)
+    if use_weights:
+        train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask)
+        valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask)
+    else:
+        train_loader = BatchDataloader(traces, ages, bs=args["batch_size"], mask=train_mask)
+        valid_loader = BatchDataloader(traces, ages, bs=args["batch_size"], mask=valid_mask)
     return train_loader, valid_loader
 
 
@@ -85,6 +93,32 @@ class ECGAgeDataset(TensorDataset):
         df = pd.read_csv(metadata_filepath)
         df = df.set_index(id_key)
         ages = torch.unsqueeze(torch.tensor(df.loc[exam_id]["age"].values), dim=-1)
+        weights = torch.unsqueeze(torch.tensor(ECGAgeDataset.compute_weights(ages)), dim=-1)
+
+        if add_weights:
+            super().__init__(traces, ages, weights)
+        else:
+            super().__init__(traces, ages)
+
+    def compute_weights(ages, max_weight=np.inf):
+        _, inverse, counts = np.unique(ages, return_inverse=True, return_counts=True)
+        weights = 1 / counts[inverse]
+        normalized_weights = weights / sum(weights)
+        w = len(ages) * normalized_weights
+        # Truncate weights to a maximum
+        if max_weight < np.inf:
+            w = np.minimum(w, max_weight)
+            w = len(ages) * w / sum(w)
+        return w
+
+class ECGAgeBianca(TensorDataset):
+
+    def __init__(self, tracing_filepath, size=1, tracings_key="x_ecg_train_nodup",  ages_key="x_age_train_nodup", add_weights=True) -> None:
+        f = h5py.File(tracing_filepath, 'r')
+        dataset_crop = int(len(f[tracings_key]) * size) if size < 1 else -1
+        traces = f[tracings_key][:dataset_crop]
+        traces = torch.from_numpy(np.array(traces)).transpose(1,2)
+        ages = torch.tensor(f[ages_key][:dataset_crop])
         weights = torch.unsqueeze(torch.tensor(ECGAgeDataset.compute_weights(ages)), dim=-1)
 
         if add_weights:
@@ -184,3 +218,6 @@ class BatchDataloader:
                 count += 1
             start = end
         return count
+
+    def get_size(self):
+        return sum(self.mask)
