@@ -7,7 +7,6 @@ from src.dataloader import load_dset_bianca, load_dset_standard
 import torch.optim as optim
 import numpy as np
 from src.argparser import  parse_ecg_json
-from src.evaluation import eval
 
 
 if __name__ == "__main__":

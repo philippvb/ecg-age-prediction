@@ -11,7 +11,6 @@ from datetime import datetime
 from src.loss_functions import mse, mae, gaussian_nll
 import h5py
 from src.argparser import parse_ecg_args, parse_ecg_json
-from src.evaluation import eval
 
 if __name__ == "__main__":
     import pandas as pd
