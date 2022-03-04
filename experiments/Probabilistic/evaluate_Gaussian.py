@@ -12,7 +12,7 @@ import numpy as np
 import argparse
 from warnings import warn
 import pandas as pd
-from src.dataloader import  BatchDataloader, compute_weights, ECGAgeDataset, load_dset_bianca, load_dset_standard
+from src.dataset.dataloader import  BatchDataloader, compute_weights, ECGAgeDataset, load_dset_swedish, load_dset_brazilian
 from laplace import Laplace
 from torch.utils.data import DataLoader, random_split
 from src.plotting import plot_calibration
@@ -47,9 +47,9 @@ if __name__ == "__main__":
     # Get traces
     # how much of our dataset we actually use, on a scale from 0 to 1
     if config_dict["bianca"]:
-        train_loader, valid_loader = load_dset_bianca(config_dict, use_weights=False)
+        train_loader, valid_loader = load_dset_swedish(config_dict, use_weights=False)
     else:
-        train_loader, valid_loader = load_dset_standard(config_dict, use_weights=False)
+        train_loader, valid_loader = load_dset_brazilian(config_dict, use_weights=False)
     valid_dataset_size =  valid_loader.get_size()
 
     with torch.no_grad():

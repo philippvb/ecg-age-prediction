@@ -12,7 +12,7 @@ import numpy as np
 import argparse
 from warnings import warn
 import pandas as pd
-from src.dataloader import  BatchDataloader, compute_weights, ECGAgeDataset
+from src.dataset.dataloader import  BatchDataloader, compute_weights, ECGAgeDataset
 from laplace import Laplace
 from torch.utils.data import DataLoader, random_split
 from src.plotting import plot_calibration

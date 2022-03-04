@@ -4,7 +4,7 @@ import os, sys
 sys.path.append(os.getcwd())
 from tqdm import tqdm
 from src.models.resnet import ProbResNet1d
-from src.dataloader import load_dset_bianca, load_dset_standard
+from src.dataset.dataloader import load_dset_swedish, load_dset_brazilian
 import torch.optim as optim
 import numpy as np
 from datetime import datetime
@@ -34,9 +34,9 @@ if __name__ == "__main__":
     tqdm.write("Building data loaders...")
     # Get csv data
     if args["bianca"]:
-        train_loader, valid_loader = load_dset_bianca(args, use_weights=args["use_weights"])
+        train_loader, valid_loader = load_dset_swedish(args, use_weights=args["use_weights"])
     else:
-        train_loader, valid_loader = load_dset_standard(args, use_weights=args["use_weights"])
+        train_loader, valid_loader = load_dset_brazilian(args, use_weights=args["use_weights"])
 
     tqdm.write("Done!")
 

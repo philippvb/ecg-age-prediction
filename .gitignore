@@ -130,6 +130,7 @@ dmypy.json
 
 # CUSTOM
 dataset
+!src/dataset
 model
 *.json
 tests

@@ -2,7 +2,7 @@
 # Imports
 import sys, os
 sys.path.append(os.getcwd())
-from src.resnet import ProbResNet1d
+from src.models.resnet import ProbResNet1d
 from tqdm import tqdm
 import h5py
 import torch
@@ -12,7 +12,7 @@ import numpy as np
 import argparse
 from warnings import warn
 import pandas as pd
-from src.dataloader import  BatchDataloader, compute_weights, ECGAgeDataset
+from src.dataset.dataloader import  BatchDataloader, compute_weights, ECGAgeDataset
 from laplace import Laplace
 from torch.utils.data import DataLoader, random_split
 from src.plotting import plot_calibration

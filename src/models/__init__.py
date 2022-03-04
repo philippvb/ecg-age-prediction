@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch
 from tqdm import tqdm
 import os
-from src.dataloader import BatchDataloader
+from src.dataset.dataloader import BatchDataloader
 
 
 

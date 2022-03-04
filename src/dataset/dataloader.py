@@ -1,8 +1,5 @@
-from collections.abc import Sequence
-import math
 import torch
 import numpy as np
-from torch.utils.data import TensorDataset
 import h5py
 import numpy as np
 import torch
@@ -11,7 +8,7 @@ import pandas as pd
 MIN_TRAIN_SET_SIZE = 1000 # the minimum size of the dataset before weight computation could become instable
 
 
-def load_dset_standard(args, use_weights=True):
+def load_dset_brazilian(args, use_weights=True, map_to_swedish=False):
     """Loads the dataset given in brazilian format, that is hdf5 for traces and csv for ages. Splits into train and valid
 
     Args:
@@ -36,6 +33,9 @@ def load_dset_standard(args, use_weights=True):
     # get traces
     f = h5py.File(args["path_to_traces"], 'r')
     traces = f[args["traces_dset"]]
+
+    # define the mapping
+    mapping = map_brazilian_to_swedish if map_to_swedish else None
     
     # check dimensions
     if len(ages) != len(traces):
@@ -64,16 +64,16 @@ def load_dset_standard(args, use_weights=True):
     # define dataloader
     weights = compute_weights(ages)
     # for validation we always want weights
-    valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask, transpose=True)
+    valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask, transpose=True, traces_mapping=mapping)
     if use_weights:
         if args["train_split"] * total_length < MIN_TRAIN_SET_SIZE:
             print("Warning: Dataset size seems very small, weights could be inaccurate")
-        train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask, transpose=True)
+        train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask, transpose=True, traces_mapping=mapping)
     else:
-        train_loader = BatchDataloader(traces, ages, bs=args["batch_size"], mask=train_mask, transpose=True)
+        train_loader = BatchDataloader(traces, ages, bs=args["batch_size"], mask=train_mask, transpose=True, traces_mapping=mapping)
     return train_loader, valid_loader
 
-def load_dset_bianca(args, use_weights=True):
+def load_dset_swedish(args, use_weights=True):
     """Loads the dataset given in swedish format, that is hdf5 for both traces and ages. Splits into train and valid
 
     Args:
@@ -116,84 +116,6 @@ def load_dset_bianca(args, use_weights=True):
         valid_loader = BatchDataloader(traces, ages, bs=args["batch_size"], mask=valid_mask)
 
     return train_loader, valid_loader
-
-
-
-class ECGAgeDataset(TensorDataset):
-    def __init__(self, tracing_filepath, metadata_filepath, size=1, id_key="exam_id", tracings_key="tracings", add_weights=True) -> None:
-        f = h5py.File(tracing_filepath, 'r')
-        dataset_crop = int(len(f[id_key]) * size) if size < 1 else -1
-        exam_id = np.array(f[id_key])[:dataset_crop]
-        traces = f[tracings_key][:dataset_crop]
-        traces = torch.from_numpy(np.array(traces)).transpose(1,2)
-        df = pd.read_csv(metadata_filepath)
-        df = df.set_index(id_key)
-        ages = torch.unsqueeze(torch.tensor(df.loc[exam_id]["age"].values), dim=-1)
-        weights = torch.unsqueeze(torch.tensor(ECGAgeDataset.compute_weights(ages)), dim=-1)
-
-        if add_weights:
-            super().__init__(traces, ages, weights)
-        else:
-            super().__init__(traces, ages)
-
-    def compute_weights(ages, max_weight=np.inf):
-        _, inverse, counts = np.unique(ages, return_inverse=True, return_counts=True)
-        weights = 1 / counts[inverse]
-        normalized_weights = weights / sum(weights)
-        w = len(ages) * normalized_weights
-        # Truncate weights to a maximum
-        if max_weight < np.inf:
-            w = np.minimum(w, max_weight)
-            w = len(ages) * w / sum(w)
-        return w
-
-class ECGAgeBianca(TensorDataset):
-
-    def __init__(self, tracing_filepath, size=1, tracings_key="x_ecg_train_nodup",  ages_key="x_age_train_nodup", add_weights=True) -> None:
-        f = h5py.File(tracing_filepath, 'r')
-        dataset_crop = int(len(f[tracings_key]) * size) if size < 1 else -1
-        traces = f[tracings_key][:dataset_crop]
-        traces = torch.from_numpy(np.array(traces)).transpose(1,2)
-        ages = torch.tensor(f[ages_key][:dataset_crop])
-        weights = torch.unsqueeze(torch.tensor(ECGAgeDataset.compute_weights(ages)), dim=-1)
-
-        if add_weights:
-            super().__init__(traces, ages, weights)
-        else:
-            super().__init__(traces, ages)
-
-    def compute_weights(ages, max_weight=np.inf):
-        _, inverse, counts = np.unique(ages, return_inverse=True, return_counts=True)
-        weights = 1 / counts[inverse]
-        normalized_weights = weights / sum(weights)
-        w = len(ages) * normalized_weights
-        # Truncate weights to a maximum
-        if max_weight < np.inf:
-            w = np.minimum(w, max_weight)
-            w = len(ages) * w / sum(w)
-        return w
-
-
-# OOD datasets
-class GaussianNoiseECGData(TensorDataset):
-    """A Class which generates random ECG data from a Gaussian Noise distribution
-    """
-    def __init__(self, dataset_size, tracings_shape=(12, 4096), seed=123) -> None:
-        torch.manual_seed(seed)
-        tracings = torch.rand(tuple([dataset_size] + list(tracings_shape)))
-        ages = torch.rand((dataset_size, 1))
-        super().__init__(tracings, ages)
-
-class FlippedECGAge(ECGAgeDataset):
-    def __init__(self, tracing_filepath, metadata_filepath, size=1, id_key="exam_id", tracings_key="tracings", add_weights=True) -> None:
-        super().__init__(tracing_filepath, metadata_filepath, size, id_key, tracings_key, add_weights)
-        self.tensors[0] = torch.flip(self.tensors, dims=[-1])
-
-class NoisyECGAge(ECGAgeDataset):
-    def __init__(self, tracing_filepath, metadata_filepath, noise=1, size=1, id_key="exam_id", tracings_key="tracings", add_weights=True) -> None:
-        super().__init__(tracing_filepath, metadata_filepath, size, id_key, tracings_key, add_weights)
-        self.tensors[0] += noise * torch.randn_like(self.tensors[0])
-
         
 
 def compute_weights(ages, max_weight=np.inf):
@@ -207,14 +129,30 @@ def compute_weights(ages, max_weight=np.inf):
         w = len(ages) * w / sum(w)
     return w
 
+def map_brazilian_to_swedish(traces:torch.Tensor) -> torch.Tensor:
+    """Maps the ecg traces from the brazilian to swedish format
+
+    Args:
+        traces (torch.Tensor): Traces in shape n_datapoints x timesteps x 12 (leads)
+
+    Returns:
+        torch.Tensor: reformatted Traces in shape n_datapoints x timesteps x 8 (leads)
+    """
+    # we have the leads in the following order:
+    # DI, DII, DIII, AVR, AVL, AVF, V1, V2, V3, V4, V5, V6
+    # and we want to drop III, aVR, aVL, aVF, so drop cols 3-5
+    indices = torch.tensor([0, 1, 6, 7, 8, 9, 10, 11])
+    return torch.index_select(traces, -1, indices)
+
 
 class BatchDataloader:
-    def __init__(self, *tensors, bs=1, mask=None, transpose=False):
+    def __init__(self, *tensors, bs=1, mask=None, transpose=False, traces_mapping=None):
         nonzero_idx, = np.nonzero(mask)
         self.transpose = transpose
         self.tensors = tensors
         self.batch_size = bs
         self.mask = mask
+        self.traces_mapping = traces_mapping
         if nonzero_idx.size > 0:
             self.start_idx = min(nonzero_idx)
             self.end_idx = max(nonzero_idx)+1
@@ -235,6 +173,10 @@ class BatchDataloader:
         self.start = end
         self.sum += sum(batch_mask)
         out_value = [torch.tensor(b[batch_mask], dtype=torch.float32) for b in batch]
+        # remove the leads if necessary
+        if self.traces_mapping:
+            out_value[0] = self.traces_mapping(out_value[0])
+        # transpose dims if necessary
         if self.transpose:
             out_value[0] = out_value[0].transpose(1,2)
         return out_value
@@ -257,3 +199,4 @@ class BatchDataloader:
 
     def get_size(self):
         return sum(self.mask)
+

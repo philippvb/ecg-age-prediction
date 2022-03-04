@@ -3,7 +3,7 @@ import torch
 import os
 from tqdm import tqdm
 from src.models.resnet import ResNet1d
-from src.dataloader import load_dset_bianca, load_dset_standard
+from src.dataset.dataloader import load_dset_swedish, load_dset_brazilian
 import torch.optim as optim
 import numpy as np
 from src.argparser import  parse_ecg_json
@@ -28,9 +28,9 @@ if __name__ == "__main__":
 
     tqdm.write("Building data loaders...")
     if args["bianca"]:
-        train_loader, valid_loader = load_dset_bianca(args, use_weights=args["use_weights"])
+        train_loader, valid_loader = load_dset_swedish(args, use_weights=args["use_weights"])
     else:
-        train_loader, valid_loader = load_dset_standard(args, use_weights=args["use_weights"])
+        train_loader, valid_loader = load_dset_brazilian(args, use_weights=args["use_weights"], map_to_swedish=True)
 
     # Get h5 data
     print(f"Training with {len(train_loader) * args['batch_size']} datapoints.")
