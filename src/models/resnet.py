@@ -323,15 +323,17 @@ class ProbResNet1d(NeuralNetwork):
         total_mse = 0
         total_wmse = 0
         total_wmae = 0
+        total_log_var = 0
 
         for traces, ages, weights in dataload:
             traces, ages, weights = traces.to(device), ages.to(device), weights.to(device)
 
             with torch.no_grad():
-                pred_ages, _ = self(traces)
+                pred_ages, pred_log_var = self(traces)
                 total_wmse += mse(ages, pred_ages, weights=weights, reduction=torch.sum).cpu().numpy()
                 total_mse += mse(ages, pred_ages, weights=None, reduction=torch.sum).cpu().numpy()
                 total_wmae += mae(ages, pred_ages, weights, reduction=torch.sum).cpu().numpy()
+                total_log_var += pred_log_var.cpu().numpy().sum()
                 # Update outputs
                 bs = len(traces)
                 n_entries += bs
@@ -340,4 +342,4 @@ class ProbResNet1d(NeuralNetwork):
                 eval_bar.update(1)
 
         eval_bar.close()
-        return total_mse / n_entries, total_wmse / n_entries, total_wmae /n_entries
+        return total_mse / n_entries, total_wmse / n_entries, total_wmae /n_entries, total_log_var/n_entries

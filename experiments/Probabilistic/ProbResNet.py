@@ -36,12 +36,12 @@ if __name__ == "__main__":
     if args["bianca"]:
         train_loader, valid_loader = load_dset_swedish(args, use_weights=args["use_weights"])
     else:
-        train_loader, valid_loader = load_dset_brazilian(args, use_weights=args["use_weights"])
+        train_loader, valid_loader = load_dset_brazilian(args, use_weights=args["use_weights"], map_to_swedish=True)
 
     tqdm.write("Done!")
 
     tqdm.write("Define model...")
-    N_LEADS = args["n_leads"]  # the 12 leads
+    N_LEADS = args["n_leads"]
     N_CLASSES = 1  # just the age
     model = ProbResNet1d(input_dim=(N_LEADS, args["seq_length"]),
                      blocks_dim=list(zip(args["net_filter_size"], args["net_seq_lengh"])),
@@ -63,12 +63,12 @@ if __name__ == "__main__":
     start_epoch = 0
     best_loss = np.Inf
     history = pd.DataFrame(columns=['epoch', 'train_loss', 'valid_loss', 'lr',
-                                    'weighted_rmse', 'weighted_mae', 'rmse', 'mse'])
+                                    'weighted_rmse', 'weighted_mae', 'rmse', 'mse', "log_var"])
     for ep in range(start_epoch, args["epochs"]):
         # compute train loss and metrics
         # train_loss = train(ep, train_loader, probabilistic=ep>=args["burnin_epochs"])
         train_loss = model.train_epoch(train_loader, ep, device, weighted=args["use_weights"])
-        valid_mse, valid_wmse, valid_wmae = model.evaluate(ep, valid_loader, device)
+        valid_mse, valid_wmse, valid_wmae, valid_log_var = model.evaluate(ep, valid_loader, device)
         # Save best model
         if valid_wmse < best_loss:
             # Save model
@@ -88,7 +88,7 @@ if __name__ == "__main__":
         # Save history
         history = history.append({"epoch": ep, "train_loss": train_loss,
                                   "valid_loss": valid_wmse, "lr": learning_rate,
-                                  "weighted_rmse": np.sqrt(valid_wmse), "weighted_mae": valid_wmae, "rmse": np.sqrt(valid_mse),"mse": valid_mse},
+                                  "weighted_rmse": np.sqrt(valid_wmse), "weighted_mae": valid_wmae, "rmse": np.sqrt(valid_mse),"mse": valid_mse, "log_var": valid_log_var},
                                    ignore_index=True)
         history.to_csv(os.path.join(folder, 'history.csv'), index=False)
         # Update learning rate
