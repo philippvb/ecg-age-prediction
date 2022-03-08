@@ -205,3 +205,6 @@ class BatchDataloader:
     def get_size(self):
         return sum(self.mask)
 
+    def format_Laplace(self):
+        self.dataset = self.tensors[0]
+
