@@ -4,6 +4,8 @@ import math
 # maybe go to mean at some point
 def mse(ages:torch.Tensor, pred_ages:torch.Tensor, weights=None, reduction=torch.sum)->torch.Tensor:
     diff = ages.flatten() - pred_ages.flatten()
+    if not reduction: # set reduction to identity function
+        reduction = lambda x: x 
     if torch.is_tensor(weights):
         loss = reduction(weights.flatten() * diff * diff)
     else:
@@ -13,6 +15,8 @@ def mse(ages:torch.Tensor, pred_ages:torch.Tensor, weights=None, reduction=torch
 
 def mae(ages:torch.Tensor, pred_ages:torch.Tensor, weights=None, reduction=torch.sum)->torch.Tensor:
     diff = ages.flatten() - pred_ages.flatten()
+    if not reduction: # set reduction to identity function
+        reduction = lambda x: x 
     if torch.is_tensor(weights):
         wmae = reduction(weights.flatten() * torch.abs(diff))
     else:
@@ -31,6 +35,8 @@ def gaussian_nll(target: torch.Tensor, pred: torch.Tensor, pred_log_var: torch.T
     Returns:
         (torch.Tensor): The sum of the negative log_likelihoods over the batch
     """
+    if not reduction: # set reduction to identity function
+        reduction = lambda x: x 
     mse = torch.pow(target - pred, 2)
     exponent = torch.exp(-pred_log_var)*mse
     loss = exponent + pred_log_var
