@@ -12,11 +12,13 @@ import numpy as np
 import argparse
 from warnings import warn
 import pandas as pd
-from src.dataset.dataloader import  BatchDataloader, compute_weights, ECGAgeDataset
+from src.dataset.pytorch_dataloader import  ECGAgeDataset
+from src.dataset.dataloader import *
 from laplace import Laplace
 from torch.utils.data import DataLoader, random_split
 from src.plotting import plot_calibration
 from src.loss_functions import mse
+from src.evaluations.plotting import *
 
 
 
@@ -25,6 +27,7 @@ if __name__ == "__main__":
     parser.add_argument('--mdl',
                         help='folder containing model.')
     args, unk = parser.parse_known_args()
+    args.mdl = "model/baseline/old/"
     # Check for unknown options
     if unk:
         warn("Unknown arguments:" + str(unk) + ".")
@@ -33,7 +36,7 @@ if __name__ == "__main__":
     with open(config, 'r') as f:
         config_dict = json.load(f)
     # Get model
-    N_LEADS = config_dict["n_leads"]
+    N_LEADS = 12 #config_dict["n_leads"]
     model = ResNet1d(input_dim=(N_LEADS, config_dict['seq_length']),
                      blocks_dim=list(zip(config_dict['net_filter_size'], config_dict['net_seq_lengh'])),
                      n_classes=1,
@@ -45,14 +48,13 @@ if __name__ == "__main__":
     print("Loading data")
     # Get traces
     # how much of our dataset we actually use, on a scale from 0 to 1
-    dataset = ECGAgeDataset(config_dict["path_to_traces"], config_dict["path_to_csv"],
-     id_key=config_dict["ids_col"], tracings_key=config_dict["traces_dset"],
-      size=config_dict["train_split"], add_weights=False)
-    train_dataset_size = int(len(dataset) * (1-config_dict["valid_split"]))
-    valid_dataset_size = int(len(dataset) - train_dataset_size)
-    train_set, valid_set = random_split(dataset, [train_dataset_size, valid_dataset_size])
-    train_loader = DataLoader(dataset, batch_size=config_dict["batch_size"])
-    valid_loader = DataLoader(valid_set, batch_size=config_dict["batch_size"])
+    if config_dict["bianca"]:
+        train_loader, valid_loader = load_dset_swedish(config_dict, use_weights=False, device=device)
+    else:
+        train_loader, valid_loader = load_dset_brazilian(config_dict, use_weights=False, device=device)
+    valid_dataset_size =  valid_loader.get_size()
+    train_loader.format_Laplace()
+    valid_loader.format_Laplace()
 
 
     print("Estimating Laplace model")
@@ -74,7 +76,7 @@ if __name__ == "__main__":
     with torch.no_grad():
 
         total_loss = 0
-        for data, ages in valid_loader:
+        for data, ages, _ in valid_loader:
             data = data.to(device)
             ages = ages.to(device)
             total_loss += mse(ages, laplace_model(data)[0]).cpu()
@@ -82,39 +84,51 @@ if __name__ == "__main__":
         print(f"MSE on validation set is: {total_loss}")
 
         var = torch.tensor([0.0])
-        for data, ages in valid_loader:
+        for data, ages, _ in valid_loader:
             data = data.to(device)
             out_mean, out_var = laplace_model(data)
             var += out_var.cpu().sum()
         var/= valid_dataset_size
         print("Mean std is:", var.sqrt().item())
 
-        for noise in [0.1, 1, 10]:
-            ood_var = torch.tensor([0.0])
-            for data, ages in valid_loader:
-                data += noise * torch.randn_like(data)
-                data = data.to(device)
-                out_mean, out_var = laplace_model(data)
-                ood_var += out_var.cpu().sum()
-            ood_var/= valid_dataset_size
-            print(f"Mean std with noise of {noise} is:", ood_var.sqrt().item())
+    #     for noise in [0.1, 1, 10]:
+    #         ood_var = torch.tensor([0.0])
+    #         for data, ages in valid_loader:
+    #             data += noise * torch.randn_like(data)
+    #             data = data.to(device)
+    #             out_mean, out_var = laplace_model(data)
+    #             ood_var += out_var.cpu().sum()
+    #         ood_var/= valid_dataset_size
+    #         print(f"Mean std with noise of {noise} is:", ood_var.sqrt().item())
 
-        ood_var = torch.tensor([0.0])
-        for data, ages in valid_loader:
-            data = torch.flip(data, dims=[-1])
-            data = data.to(device)
-            out_mean, out_var = laplace_model(data)
-            ood_var += out_var.cpu().sum()
-        ood_var/= valid_dataset_size
-        print(f"Mean std for flipped is:", ood_var.sqrt().item())
+    #     ood_var = torch.tensor([0.0])
+    #     for data, ages in valid_loader:
+    #         data = torch.flip(data, dims=[-1])
+    #         data = data.to(device)
+    #         out_mean, out_var = laplace_model(data)
+    #         ood_var += out_var.cpu().sum()
+    #     ood_var/= valid_dataset_size
+    #     print(f"Mean std for flipped is:", ood_var.sqrt().item())
         
 
         import matplotlib.pyplot as plt
-        fig, axs = plt.subplots(1, figsize=(10, 10))
-        plot_calibration(laplace_model, valid_loader, axs, device=device, data_noise=laplace_model.sigma_noise.item()**2)
-        axs.set_title("Calibration")
-        ax_lim_std = (var + laplace_model.sigma_noise.item()**2).sqrt()
-        axs.set_xlim(ax_lim_std - 0.3, ax_lim_std + 1)
-        axs.set_xlabel("Confidence in form of standard deviation")
-        axs.set_ylabel("Absolut error")
-        plt.savefig("laplace_calibration.png")
+        # fig, axs = plt.subplots(1, figsize=(10, 10))
+        # plot_calibration(laplace_model, valid_loader, axs, device=device, data_noise=laplace_model.sigma_noise.item()**2)
+        # axs.set_title("Calibration")
+        # ax_lim_std = (var + laplace_model.sigma_noise.item()**2).sqrt()
+        # axs.set_xlim(ax_lim_std - 0.3, ax_lim_std + 1)
+        # axs.set_xlabel("Confidence in form of standard deviation")
+        # axs.set_ylabel("Absolut error")
+        # plt.savefig("laplace_calibration.png")
+
+            
+        fig, axs = plt.subplots(2,2, figsize=(10, 10))
+        axs = axs.flat
+        for ax in axs:
+            ax.set_axisbelow(True) # set grid to below
+            ax.grid(alpha=0.3)
+        plot_age_vs_error(valid_loader, laplace_model, axs[0], lambda x, y: mse(x, y, reduction=None))
+        plot_predicted_age_vs_error(valid_loader, laplace_model, axs[1], lambda x, y: mse(x, y, reduction=None), prob=True)
+        plot_calibration_laplace(valid_loader, laplace_model, axs[2], lambda x, y: mse(x, y, reduction=None))
+        plt.tight_layout()
+        plt.savefig(args.mdl + "Evaluation.jpg")

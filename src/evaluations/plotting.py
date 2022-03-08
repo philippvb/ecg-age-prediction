@@ -39,7 +39,7 @@ def plot_calibration(dataset:BatchDataloader, model:nn.Module, axs:Axes, error_f
     axs.set_xlabel("Predicted variance")
     axs.set_ylabel("Error")
 
-
+@torch.no_grad()
 def plot_calibration_laplace(dataset:BatchDataloader, model:nn.Module, axs:Axes, error_fun=torch.nn.MSELoss, plot_parameters=SCATTER_CONFIG):
     pred, pred_var, errors, ages = forward_summary(dataset, model, error_fun, prob=True)
     errors, pred_var = remove_outliers(errors, pred_var, n=100)
