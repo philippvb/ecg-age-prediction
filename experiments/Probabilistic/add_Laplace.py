@@ -18,6 +18,7 @@ from laplace import Laplace
 from torch.utils.data import DataLoader, random_split
 from src.plotting import plot_calibration
 from src.loss_functions import mse
+import matplotlib.pyplot as plt
 from src.evaluations.plotting import *
 
 
@@ -91,44 +92,32 @@ if __name__ == "__main__":
         var/= valid_dataset_size
         print("Mean std is:", var.sqrt().item())
 
-    #     for noise in [0.1, 1, 10]:
-    #         ood_var = torch.tensor([0.0])
-    #         for data, ages in valid_loader:
-    #             data += noise * torch.randn_like(data)
-    #             data = data.to(device)
-    #             out_mean, out_var = laplace_model(data)
-    #             ood_var += out_var.cpu().sum()
-    #         ood_var/= valid_dataset_size
-    #         print(f"Mean std with noise of {noise} is:", ood_var.sqrt().item())
+        for noise in [0.1, 1, 10]:
+            ood_var = torch.tensor([0.0])
+            for data, ages in valid_loader:
+                data += noise * torch.randn_like(data)
+                data = data.to(device)
+                out_mean, out_var = laplace_model(data)
+                ood_var += out_var.cpu().sum()
+            ood_var/= valid_dataset_size
+            print(f"Mean std with noise of {noise} is:", ood_var.sqrt().item())
 
-    #     ood_var = torch.tensor([0.0])
-    #     for data, ages in valid_loader:
-    #         data = torch.flip(data, dims=[-1])
-    #         data = data.to(device)
-    #         out_mean, out_var = laplace_model(data)
-    #         ood_var += out_var.cpu().sum()
-    #     ood_var/= valid_dataset_size
-    #     print(f"Mean std for flipped is:", ood_var.sqrt().item())
-        
-
-        import matplotlib.pyplot as plt
-        # fig, axs = plt.subplots(1, figsize=(10, 10))
-        # plot_calibration(laplace_model, valid_loader, axs, device=device, data_noise=laplace_model.sigma_noise.item()**2)
-        # axs.set_title("Calibration")
-        # ax_lim_std = (var + laplace_model.sigma_noise.item()**2).sqrt()
-        # axs.set_xlim(ax_lim_std - 0.3, ax_lim_std + 1)
-        # axs.set_xlabel("Confidence in form of standard deviation")
-        # axs.set_ylabel("Absolut error")
-        # plt.savefig("laplace_calibration.png")
-
+        ood_var = torch.tensor([0.0])
+        for data, ages in valid_loader:
+            data = torch.flip(data, dims=[-1])
+            data = data.to(device)
+            out_mean, out_var = laplace_model(data)
+            ood_var += out_var.cpu().sum()
+        ood_var/= valid_dataset_size
+        print(f"Mean std for flipped is:", ood_var.sqrt().item())
             
-        fig, axs = plt.subplots(2,2, figsize=(10, 10))
-        axs = axs.flat
-        for ax in axs:
-            ax.set_axisbelow(True) # set grid to below
-            ax.grid(alpha=0.3)
-        plot_age_vs_error(valid_loader, laplace_model, axs[0], lambda x, y: mse(x, y, reduction=None))
-        plot_predicted_age_vs_error(valid_loader, laplace_model, axs[1], lambda x, y: mse(x, y, reduction=None), prob=True)
-        plot_calibration_laplace(valid_loader, laplace_model, axs[2], lambda x, y: mse(x, y, reduction=None))
-        plt.tight_layout()
-        plt.savefig(args.mdl + "Evaluation.jpg")
+    fig, axs = plt.subplots(2,2, figsize=(10, 10))
+    axs = axs.flat
+    for ax in axs:
+        ax.set_axisbelow(True) # set grid to below
+        ax.grid(alpha=0.3)
+    plot_age_vs_error(valid_loader, laplace_model, axs[0], lambda x, y: mse(x, y, reduction=None))
+    plot_predicted_age_vs_error(valid_loader, laplace_model, axs[1], lambda x, y: mse(x, y, reduction=None), prob=True)
+    plot_calibration_laplace(valid_loader, laplace_model, axs[2], lambda x, y: mse(x, y, reduction=None))
+    plt.tight_layout()
+    plt.savefig(args.mdl + "Evaluation.jpg")
