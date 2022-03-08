@@ -12,11 +12,12 @@ import numpy as np
 import argparse
 from warnings import warn
 import pandas as pd
-from src.dataset.dataloader import  BatchDataloader, compute_weights, ECGAgeDataset, load_dset_swedish, load_dset_brazilian
+from src.dataset.dataloader import load_dset_swedish, load_dset_brazilian
 from laplace import Laplace
 from torch.utils.data import DataLoader, random_split
 from src.plotting import plot_calibration
 from src.loss_functions import mse
+from src.evaluations.plotting import *
 
 
 
@@ -47,47 +48,57 @@ if __name__ == "__main__":
     # Get traces
     # how much of our dataset we actually use, on a scale from 0 to 1
     if config_dict["bianca"]:
-        train_loader, valid_loader = load_dset_swedish(config_dict, use_weights=False)
+        train_loader, valid_loader = load_dset_swedish(config_dict, use_weights=False, device=device)
     else:
-        train_loader, valid_loader = load_dset_brazilian(config_dict, use_weights=False)
+        train_loader, valid_loader = load_dset_brazilian(config_dict, use_weights=False, device=device)
     valid_dataset_size =  valid_loader.get_size()
 
-    with torch.no_grad():
+    # with torch.no_grad():
     
-        total_loss = 0
-        for data, ages, weights in valid_loader:
-            data = data.to(device)
-            ages = ages.to(device)
-            total_loss += mse(ages, model(data)[0]).cpu()
-        total_loss /= valid_dataset_size
-        print(f"MSE on validation set is: {total_loss}")
+        # total_loss = 0
+        # for data, ages, weights in valid_loader:
+        #     data = data.to(device)
+        #     ages = ages.to(device)
+        #     total_loss += mse(ages, model(data)[0]).cpu()
+        # total_loss /= valid_dataset_size
+        # print(f"MSE on validation set is: {total_loss}")
 
-        var = torch.tensor([0.0])
-        for data, ages, weights in valid_loader:
-            data = data.to(device)
-            out_mean, out_var = model(data)
-            var += out_var.exp().cpu().sum()
-        var/= valid_dataset_size
-        print("Mean std is:", var.sqrt().item())
+        # var = torch.tensor([0.0])
+        # for data, ages, weights in valid_loader:
+        #     data = data.to(device)
+        #     out_mean, out_var = model(data)
+        #     var += out_var.exp().cpu().sum()
+        # var/= valid_dataset_size
+        # print("Mean std is:", var.sqrt().item())
 
-        for noise in [0.1, 1, 5, 10]:
-            ood_var = torch.tensor([0.0])
-            for data, ages, weights in valid_loader:
-                data += noise * torch.randn_like(data)
-                data = data.to(device)
-                out_mean, out_var = model(data)
-                ood_var += out_var.exp().cpu().sum()
-            ood_var/= valid_dataset_size
-            print(f"Mean std with noise of {noise} is:", ood_var.sqrt().item())
+        # for noise in [0.1, 1, 5, 10]:
+        #     ood_var = torch.tensor([0.0])
+        #     for data, ages, weights in valid_loader:
+        #         data += noise * torch.randn_like(data)
+        #         data = data.to(device)
+        #         out_mean, out_var = model(data)
+        #         ood_var += out_var.exp().cpu().sum()
+        #     ood_var/= valid_dataset_size
+        #     print(f"Mean std with noise of {noise} is:", ood_var.sqrt().item())
 
-        ood_var = torch.tensor([0.0])
-        for data, ages, weights in valid_loader:
-            data = torch.flip(data, dims=[-1])
-            data = data.to(device)
-            out_mean, out_var = model(data)
-            ood_var += out_var.exp().cpu().sum()
-        ood_var/= valid_dataset_size
-        print(f"Mean std for flipped is:", ood_var.sqrt().item())
+        # ood_var = torch.tensor([0.0])
+        # for data, ages, weights in valid_loader:
+        #     data = torch.flip(data, dims=[-1])
+        #     data = data.to(device)
+        #     out_mean, out_var = model(data)
+        #     ood_var += out_var.exp().cpu().sum()
+        # ood_var/= valid_dataset_size
+        # print(f"Mean std for flipped is:", ood_var.sqrt().item())
+    fig, axs = plt.subplots(2,2, figsize=(10, 10))
+    axs = axs.flat
+    for ax in axs:
+        ax.set_axisbelow(True) # set grid to below
+        ax.grid(alpha=0.3)
+    plot_age_vs_error(valid_loader, model, axs[0], lambda x, y: mse(x, y, reduction=None))
+    plot_predicted_age_vs_error(valid_loader, model, axs[1], lambda x, y: mse(x, y, reduction=None), prob=True)
+    plot_calibration(valid_loader, model, axs[2], lambda x, y: mse(x, y, reduction=None))
+    plt.tight_layout()
+    plt.savefig(args.mdl + "Evaluation.jpg")
         
         # TODO: make it work
         # import matplotlib.pyplot as plt
