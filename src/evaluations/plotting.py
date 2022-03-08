@@ -35,7 +35,16 @@ def remove_outliers(x:torch.Tensor, *tensors, n:int) -> torch.Tensor:
 def plot_calibration(dataset:BatchDataloader, model:nn.Module, axs:Axes, error_fun=torch.nn.MSELoss, plot_parameters=SCATTER_CONFIG):
     pred, pred_log_var, errors, ages = forward_summary(dataset, model, error_fun, prob=True)
     errors, pred_log_var = remove_outliers(errors, pred_log_var, n=100)
-    axs.scatter(errors.cpu(), pred_log_var.exp().cpu(), **plot_parameters)
+    axs.scatter(pred_log_var.exp().cpu(), errors.cpu(), **plot_parameters)
+    axs.set_xlabel("Predicted variance")
+    axs.set_ylabel("Error")
+
+
+def plot_calibration_laplace(dataset:BatchDataloader, model:nn.Module, axs:Axes, error_fun=torch.nn.MSELoss, plot_parameters=SCATTER_CONFIG):
+    pred, pred_var, errors, ages = forward_summary(dataset, model, error_fun, prob=True)
+    errors, pred_var = remove_outliers(errors, pred_var, n=100)
+    var = pred_var.cpu() + model.sigma_noise.item()**2 # add the datanoise if the model
+    axs.scatter(var, errors.cpu(),  **plot_parameters)
     axs.set_xlabel("Predicted variance")
     axs.set_ylabel("Error")
 
