@@ -8,7 +8,7 @@ import pandas as pd
 MIN_TRAIN_SET_SIZE = 1000 # the minimum size of the dataset before weight computation could become instable
 
 
-def load_dset_brazilian(args, use_weights=True, map_to_swedish=False):
+def load_dset_brazilian(args, use_weights=True, map_to_swedish=False, device="cpu"):
     """Loads the dataset given in brazilian format, that is hdf5 for traces and csv for ages. Splits into train and valid
 
     Args:
@@ -22,6 +22,7 @@ def load_dset_brazilian(args, use_weights=True, map_to_swedish=False):
             - train_split: How much of the dataset to use for training, on a scale from 0 to 1 (dataset_subset)
             - valid_split: How much of the dataset to use for validation, on a scale from 0 to 1 (n_valid)
         use_weights (bool, optional): Wether to add the weights to the train_loader (always in valid_loader). Defaults to True.
+        device (str): The device to push the data to
 
     Returns:
         tuple(BatchDataloader, BatchDataloader): The train and validation set
@@ -64,16 +65,17 @@ def load_dset_brazilian(args, use_weights=True, map_to_swedish=False):
     # define dataloader
     weights = compute_weights(ages)
     # for validation we always want weights
-    valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask, transpose=True, traces_mapping=mapping)
+    if args["train_split"] * total_length < MIN_TRAIN_SET_SIZE:
+        print("Warning: Dataset size seems very small, weights could be inaccurate")
+    valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask, transpose=True, traces_mapping=mapping, device=device)
+    # train set
     if use_weights:
-        if args["train_split"] * total_length < MIN_TRAIN_SET_SIZE:
-            print("Warning: Dataset size seems very small, weights could be inaccurate")
-        train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask, transpose=True, traces_mapping=mapping)
+        train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask, transpose=True, traces_mapping=mapping, device=device)
     else:
-        train_loader = BatchDataloader(traces, ages, bs=args["batch_size"], mask=train_mask, transpose=True, traces_mapping=mapping)
+        train_loader = BatchDataloader(traces, ages, bs=args["batch_size"], mask=train_mask, transpose=True, traces_mapping=mapping, device=device)
     return train_loader, valid_loader
 
-def load_dset_swedish(args, use_weights=True):
+def load_dset_swedish(args, use_weights=True, device="cpu"):
     """Loads the dataset given in swedish format, that is hdf5 for both traces and ages. Splits into train and valid
 
     Args:
@@ -84,6 +86,7 @@ def load_dset_swedish(args, use_weights=True):
             - train_split: How much of the dataset to use for training, on a scale from 0 to 1 (dataset_subset)
             - valid_split: How much of the dataset to use for validation, on a scale from 0 to 1 (n_valid)
         use_weights (bool, optional): Wether to add the weights to the dataset. Defaults to True.
+        device (str): The device to push the data to
 
     Returns:
         tuple(BatchDataloader, BatchDataloader): The train and validation set
@@ -104,16 +107,16 @@ def load_dset_swedish(args, use_weights=True):
     else:
         train_mask = ~valid_mask
 
-    # Dataloader
+    # for valid we always want weights
+    if args["train_split"] * n_datapoints < MIN_TRAIN_SET_SIZE:
+        print("Warning: Dataset size seems very small, weights could be inaccurate")
+    weights = compute_weights(ages)
+    valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask, device=device)
+    # train loader
     if use_weights:
-        if args["train_split"] * n_datapoints < MIN_TRAIN_SET_SIZE:
-            print("Warning: Dataset size seems very small, weights could be inaccurate")
-        weights = compute_weights(ages)
-        train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask)
-        valid_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=valid_mask)
+        train_loader = BatchDataloader(traces, ages, weights, bs=args["batch_size"], mask=train_mask, device=device)
     else:
-        train_loader = BatchDataloader(traces, ages, bs=args["batch_size"], mask=train_mask)
-        valid_loader = BatchDataloader(traces, ages, bs=args["batch_size"], mask=valid_mask)
+        train_loader = BatchDataloader(traces, ages, bs=args["batch_size"], mask=train_mask, device=device)
 
     return train_loader, valid_loader
         
@@ -142,17 +145,19 @@ def map_brazilian_to_swedish(traces:torch.Tensor) -> torch.Tensor:
     # DI, DII, DIII, AVR, AVL, AVF, V1, V2, V3, V4, V5, V6
     # and we want to drop III, aVR, aVL, aVF, so drop cols 3-5
     indices = torch.tensor([0, 1, 6, 7, 8, 9, 10, 11])
+    # TODO: maybe we need to reorder columns
     return torch.index_select(traces, -1, indices)
 
 
 class BatchDataloader:
-    def __init__(self, *tensors, bs=1, mask=None, transpose=False, traces_mapping=None):
+    def __init__(self, *tensors, bs=1, mask=None, transpose=False, traces_mapping=None, device="cpu"):
         nonzero_idx, = np.nonzero(mask)
         self.transpose = transpose
         self.tensors = tensors
         self.batch_size = bs
         self.mask = mask
         self.traces_mapping = traces_mapping
+        self.device = device
         if nonzero_idx.size > 0:
             self.start_idx = min(nonzero_idx)
             self.end_idx = max(nonzero_idx)+1
@@ -172,7 +177,7 @@ class BatchDataloader:
         batch = [np.array(t[self.start:end]) for t in self.tensors]
         self.start = end
         self.sum += sum(batch_mask)
-        out_value = [torch.tensor(b[batch_mask], dtype=torch.float32) for b in batch]
+        out_value = [torch.tensor(b[batch_mask], dtype=torch.float32).to(self.device) for b in batch]
         # remove the leads if necessary
         if self.traces_mapping:
             out_value[0] = self.traces_mapping(out_value[0])
