@@ -206,5 +206,7 @@ class BatchDataloader:
         return sum(self.mask)
 
     def format_Laplace(self):
+        """Formats the dataset for Laplace package by adding the traces to the self.dataset field
+        """
         self.dataset = self.tensors[0]
 

@@ -37,7 +37,7 @@ if __name__ == "__main__":
     with open(config, 'r') as f:
         config_dict = json.load(f)
     # Get model
-    N_LEADS = 12 #config_dict["n_leads"]
+    N_LEADS = config_dict["n_leads"]
     model = ResNet1d(input_dim=(N_LEADS, config_dict['seq_length']),
                      blocks_dim=list(zip(config_dict['net_filter_size'], config_dict['net_seq_lengh'])),
                      n_classes=1,
@@ -94,7 +94,7 @@ if __name__ == "__main__":
 
         for noise in [0.1, 1, 10]:
             ood_var = torch.tensor([0.0])
-            for data, ages in valid_loader:
+            for data, ages, _ in valid_loader:
                 data += noise * torch.randn_like(data)
                 data = data.to(device)
                 out_mean, out_var = laplace_model(data)
@@ -103,7 +103,7 @@ if __name__ == "__main__":
             print(f"Mean std with noise of {noise} is:", ood_var.sqrt().item())
 
         ood_var = torch.tensor([0.0])
-        for data, ages in valid_loader:
+        for data, ages, _ in valid_loader:
             data = torch.flip(data, dims=[-1])
             data = data.to(device)
             out_mean, out_var = laplace_model(data)
@@ -120,4 +120,4 @@ if __name__ == "__main__":
     plot_predicted_age_vs_error(valid_loader, laplace_model, axs[1], lambda x, y: mse(x, y, reduction=None), prob=True)
     plot_calibration_laplace(valid_loader, laplace_model, axs[2], lambda x, y: mse(x, y, reduction=None))
     plt.tight_layout()
-    plt.savefig(args.mdl + "Evaluation.jpg")
+    plt.savefig(args.mdl + "Laplace_Evaluation.jpg")

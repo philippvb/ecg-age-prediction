@@ -53,42 +53,42 @@ if __name__ == "__main__":
         train_loader, valid_loader = load_dset_brazilian(config_dict, use_weights=False, device=device)
     valid_dataset_size =  valid_loader.get_size()
 
-    # with torch.no_grad():
+    with torch.no_grad():
     
-        # total_loss = 0
-        # for data, ages, weights in valid_loader:
-        #     data = data.to(device)
-        #     ages = ages.to(device)
-        #     total_loss += mse(ages, model(data)[0]).cpu()
-        # total_loss /= valid_dataset_size
-        # print(f"MSE on validation set is: {total_loss}")
+        total_loss = 0
+        for data, ages, weights in valid_loader:
+            data = data.to(device)
+            ages = ages.to(device)
+            total_loss += mse(ages, model(data)[0]).cpu()
+        total_loss /= valid_dataset_size
+        print(f"MSE on validation set is: {total_loss}")
 
-        # var = torch.tensor([0.0])
-        # for data, ages, weights in valid_loader:
-        #     data = data.to(device)
-        #     out_mean, out_var = model(data)
-        #     var += out_var.exp().cpu().sum()
-        # var/= valid_dataset_size
-        # print("Mean std is:", var.sqrt().item())
+        var = torch.tensor([0.0])
+        for data, ages, weights in valid_loader:
+            data = data.to(device)
+            out_mean, out_var = model(data)
+            var += out_var.exp().cpu().sum()
+        var/= valid_dataset_size
+        print("Mean std is:", var.sqrt().item())
 
-        # for noise in [0.1, 1, 5, 10]:
-        #     ood_var = torch.tensor([0.0])
-        #     for data, ages, weights in valid_loader:
-        #         data += noise * torch.randn_like(data)
-        #         data = data.to(device)
-        #         out_mean, out_var = model(data)
-        #         ood_var += out_var.exp().cpu().sum()
-        #     ood_var/= valid_dataset_size
-        #     print(f"Mean std with noise of {noise} is:", ood_var.sqrt().item())
+        for noise in [0.1, 1, 5, 10]:
+            ood_var = torch.tensor([0.0])
+            for data, ages, weights in valid_loader:
+                data += noise * torch.randn_like(data)
+                data = data.to(device)
+                out_mean, out_var = model(data)
+                ood_var += out_var.exp().cpu().sum()
+            ood_var/= valid_dataset_size
+            print(f"Mean std with noise of {noise} is:", ood_var.sqrt().item())
 
-        # ood_var = torch.tensor([0.0])
-        # for data, ages, weights in valid_loader:
-        #     data = torch.flip(data, dims=[-1])
-        #     data = data.to(device)
-        #     out_mean, out_var = model(data)
-        #     ood_var += out_var.exp().cpu().sum()
-        # ood_var/= valid_dataset_size
-        # print(f"Mean std for flipped is:", ood_var.sqrt().item())
+        ood_var = torch.tensor([0.0])
+        for data, ages, weights in valid_loader:
+            data = torch.flip(data, dims=[-1])
+            data = data.to(device)
+            out_mean, out_var = model(data)
+            ood_var += out_var.exp().cpu().sum()
+        ood_var/= valid_dataset_size
+        print(f"Mean std for flipped is:", ood_var.sqrt().item())
     fig, axs = plt.subplots(2,2, figsize=(10, 10))
     axs = axs.flat
     for ax in axs:
@@ -98,16 +98,4 @@ if __name__ == "__main__":
     plot_predicted_age_vs_error(valid_loader, model, axs[1], lambda x, y: mse(x, y, reduction=None), prob=True)
     plot_calibration(valid_loader, model, axs[2], lambda x, y: mse(x, y, reduction=None))
     plt.tight_layout()
-    plt.savefig(args.mdl + "Evaluation.jpg")
-        
-        # TODO: make it work
-        # import matplotlib.pyplot as plt
-        # fig, axs = plt.subplots(1, figsize=(10, 10))
-        # plot_calibration(model, valid_loader, axs, device=device, data_noise=0, log_scale=True)
-        # axs.set_title("Calibration")
-        # # ax_lim_std = (var + model.sigma_noise.item()**2).sqrt()
-        # # axs.set_xlim(ax_lim_std - 0.3, ax_lim_std + 1)
-        # axs.set_xlabel("Confidence in form of standard deviation")
-        # axs.set_ylabel("Absolut error")
-        # plt.show()
-        # plt.savefig("gaussian.png")
+    plt.savefig(args.mdl + "Gaussian_Evaluation.jpg")
