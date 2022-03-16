@@ -28,7 +28,6 @@ if __name__ == "__main__":
     parser.add_argument('--mdl',
                         help='folder containing model.')
     args, unk = parser.parse_known_args()
-    args.mdl = "model/baseline/old/"
     # Check for unknown options
     if unk:
         warn("Unknown arguments:" + str(unk) + ".")
