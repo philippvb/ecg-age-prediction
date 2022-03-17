@@ -132,7 +132,7 @@ def compute_weights(ages, max_weight=np.inf):
         w = len(ages) * w / sum(w)
     return w
 
-def map_brazilian_to_swedish(traces:torch.Tensor) -> torch.Tensor:
+def map_brazilian_to_swedish(traces:torch.Tensor, device="cpu") -> torch.Tensor:
     """Maps the ecg traces from the brazilian to swedish format
 
     Args:
@@ -144,8 +144,9 @@ def map_brazilian_to_swedish(traces:torch.Tensor) -> torch.Tensor:
     # we have the leads in the following order:
     # DI, DII, DIII, AVR, AVL, AVF, V1, V2, V3, V4, V5, V6
     # and we want to drop III, aVR, aVL, aVF, so drop cols 3-5
-    indices = torch.tensor([0, 1, 6, 7, 8, 9, 10, 11])
-    # TODO: maybe we need to reorder columns
+    indices = torch.tensor([0, 1, 6, 7, 8, 9, 10, 11]).to(device)
+    # TODO: maybe we need to reorder columns, but up to now doesnt seem like it, this is from antonios file
+    # ['I', 'II', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']
     return torch.index_select(traces, -1, indices)
 
 
@@ -180,7 +181,7 @@ class BatchDataloader:
         out_value = [torch.tensor(b[batch_mask], dtype=torch.float32).to(self.device) for b in batch]
         # remove the leads if necessary
         if self.traces_mapping:
-            out_value[0] = self.traces_mapping(out_value[0])
+            out_value[0] = self.traces_mapping(out_value[0], device=self.device)
         # transpose dims if necessary
         if self.transpose:
             out_value[0] = out_value[0].transpose(1,2)
