@@ -31,6 +31,7 @@ if __name__ == "__main__":
     config = os.path.join(args.mdl, 'args.json')
     with open(config, 'r') as f:
         config_dict = json.load(f)
+    print(config)
     # Get model
     N_LEADS = config_dict["n_leads"]
     model = ResNet1d(input_dim=(N_LEADS, config_dict['seq_length']),
@@ -75,9 +76,7 @@ if __name__ == "__main__":
         total_wmse = 0
         total_mae = 0
         for data, ages, weights in valid_loader:
-            data = data.to(device)
-            ages = ages.to(device)
-            prediction = laplace_model(data)[0]
+            prediction = model(data)
             total_mse += mse(ages, prediction).cpu()
             total_wmse += mse(ages, prediction, weights).cpu()
             total_mae += mae(ages, prediction).cpu()
@@ -88,7 +87,6 @@ if __name__ == "__main__":
         print(f"Sqrt of MSE on validation set is: {total_mse.sqrt()}")
         print(f"Weighted MSE on validation set is: {total_wmse}")
         print(f"MAE on validation set is: {total_mae}")
-
         var = torch.tensor([0.0])
         for data, ages, _ in valid_loader:
             data = data.to(device)
@@ -118,12 +116,13 @@ if __name__ == "__main__":
             
     fig, axs = plt.subplots(2,2, figsize=(10, 10))
     axs = axs.flat
-    for ax in axs:
+    for ax in axs[:-1]:
         ax.set_axisbelow(True) # set grid to below
         ax.grid(alpha=0.3)
+    axs[-1].axis("off") # set the axis off, this one is for the summary
     plot_age_vs_error(valid_loader, laplace_model, axs[0], lambda x, y: mse(x, y, reduction=None))
     plot_predicted_age_vs_error(valid_loader, laplace_model, axs[1], lambda x, y: mse(x, y, reduction=None), prob=True)
     plot_calibration_laplace(valid_loader, laplace_model, axs[2], lambda x, y: mse(x, y, reduction=None))
-    plot_summary(axs[23], {"MSE": total_mse, "WMSE": total_wmse, "MAE": total_mae})
+    plot_summary(axs[-1], {"MSE": total_mse, "WMSE": total_wmse, "MAE": total_mae})
     plt.tight_layout()
     plt.savefig(args.mdl + "Laplace_Evaluation.jpg")
