@@ -64,4 +64,11 @@ def plot_predicted_age_vs_error(dataset:BatchDataloader, model:nn.Module, axs:Ax
     axs.set_xlim(25, 100)
     # axs.set_ylim(0, errors.max())
     axs.set_xlabel("predicted Age")
-    axs.set_ylabel("Error")    
+    axs.set_ylabel("Error")
+
+def plot_summary(axs, summary_dict:dict):
+    textstr = "Summary\n"
+    textstr += "\n".join([f"{key}: {value}" for key, value in summary_dict.items()])
+    props = dict(boxstyle='round', facecolor='white', alpha=0.5)
+    axs.text(0.05, 0.95, textstr, transform=axs.transAxes, fontsize=14,
+        verticalalignment='top', bbox=props)

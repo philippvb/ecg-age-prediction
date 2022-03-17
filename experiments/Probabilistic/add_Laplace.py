@@ -4,7 +4,6 @@ import sys, os
 sys.path.append(os.getcwd())
 from src.models.resnet import ResNet1d
 from tqdm import tqdm
-import h5py
 import torch
 import os
 import json
@@ -12,12 +11,9 @@ import numpy as np
 import argparse
 from warnings import warn
 import pandas as pd
-from src.dataset.pytorch_dataloader import  ECGAgeDataset
 from src.dataset.dataloader import *
 from laplace import Laplace
-from torch.utils.data import DataLoader, random_split
-from src.plotting import plot_calibration
-from src.loss_functions import mse
+from src.loss_functions import mse, mae
 import matplotlib.pyplot as plt
 from src.evaluations.plotting import *
 
@@ -31,7 +27,7 @@ if __name__ == "__main__":
     # Check for unknown options
     if unk:
         warn("Unknown arguments:" + str(unk) + ".")
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda:3' if torch.cuda.is_available() else 'cpu')
     config = os.path.join(args.mdl, 'args.json')
     with open(config, 'r') as f:
         config_dict = json.load(f)
@@ -51,7 +47,7 @@ if __name__ == "__main__":
     if config_dict["bianca"]:
         train_loader, valid_loader = load_dset_swedish(config_dict, use_weights=False, device=device)
     else:
-        train_loader, valid_loader = load_dset_brazilian(config_dict, use_weights=False, device=device)
+        train_loader, valid_loader = load_dset_brazilian(config_dict, use_weights=False, device=device, map_to_swedish=config_dict["n_leads"]==8)
     valid_dataset_size =  valid_loader.get_size()
     train_loader.format_Laplace()
     valid_loader.format_Laplace()
@@ -75,13 +71,23 @@ if __name__ == "__main__":
 
     with torch.no_grad():
 
-        total_loss = 0
-        for data, ages, _ in valid_loader:
+        total_mse = 0
+        total_wmse = 0
+        total_mae = 0
+        for data, ages, weights in valid_loader:
             data = data.to(device)
             ages = ages.to(device)
-            total_loss += mse(ages, laplace_model(data)[0]).cpu()
-        total_loss /= valid_dataset_size
-        print(f"MSE on validation set is: {total_loss}")
+            prediction = laplace_model(data)[0]
+            total_mse += mse(ages, prediction).cpu()
+            total_wmse += mse(ages, prediction, weights).cpu()
+            total_mae += mae(ages, prediction).cpu()
+        total_mse /= valid_dataset_size
+        total_wmse /= valid_dataset_size
+        total_mae /= valid_dataset_size
+        print(f"MSE on validation set is: {total_mse}")
+        print(f"Sqrt of MSE on validation set is: {total_mse.sqrt()}")
+        print(f"Weighted MSE on validation set is: {total_wmse}")
+        print(f"MAE on validation set is: {total_mae}")
 
         var = torch.tensor([0.0])
         for data, ages, _ in valid_loader:
@@ -118,5 +124,6 @@ if __name__ == "__main__":
     plot_age_vs_error(valid_loader, laplace_model, axs[0], lambda x, y: mse(x, y, reduction=None))
     plot_predicted_age_vs_error(valid_loader, laplace_model, axs[1], lambda x, y: mse(x, y, reduction=None), prob=True)
     plot_calibration_laplace(valid_loader, laplace_model, axs[2], lambda x, y: mse(x, y, reduction=None))
+    plot_summary(axs[23], {"MSE": total_mse, "WMSE": total_wmse, "MAE": total_mae})
     plt.tight_layout()
     plt.savefig(args.mdl + "Laplace_Evaluation.jpg")
