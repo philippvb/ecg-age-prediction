@@ -52,7 +52,9 @@ if __name__ == "__main__":
     valid_dataset_size =  valid_loader.get_size()
 
     with torch.no_grad():
-    
+        
+        summary = {}
+        summary["dataset size"] = valid_dataset_size
         total_mse = 0
         total_wmse = 0
         total_mae = 0
@@ -70,6 +72,9 @@ if __name__ == "__main__":
         print(f"Sqrt of MSE on validation set is: {total_mse.sqrt()}")
         print(f"Weighted MSE on validation set is: {total_wmse}")
         print(f"MAE on validation set is: {total_mae}")
+        summary["MSE"] = total_mse
+        summary["WMSE"] = total_wmse
+        summary["MAE"] = total_mae
 
         var = torch.tensor([0.0])
         for data, ages, weights in valid_loader:
@@ -78,6 +83,7 @@ if __name__ == "__main__":
             var += out_var.exp().cpu().sum()
         var/= valid_dataset_size
         print("Mean std is:", var.sqrt().item())
+        summary["Mean std"] = var.sqrt()
 
         for noise in [0.1, 1, 5, 10]:
             ood_var = torch.tensor([0.0])
@@ -88,6 +94,7 @@ if __name__ == "__main__":
                 ood_var += out_var.exp().cpu().sum()
             ood_var/= valid_dataset_size
             print(f"Mean std with noise of {noise} is:", ood_var.sqrt().item())
+            summary[f"Mean std, noise {noise}"] = ood_var.sqrt()
 
         ood_var = torch.tensor([0.0])
         for data, ages, weights in valid_loader:
@@ -97,14 +104,17 @@ if __name__ == "__main__":
             ood_var += out_var.exp().cpu().sum()
         ood_var/= valid_dataset_size
         print(f"Mean std for flipped is:", ood_var.sqrt().item())
+        summary[f"Mean std, flipped {noise}"] = ood_var.sqrt()
+
     fig, axs = plt.subplots(2,2, figsize=(10, 10))
     axs = axs.flat
-    for ax in axs:
+    for ax in axs[:-1]:
         ax.set_axisbelow(True) # set grid to below
         ax.grid(alpha=0.3)
+    axs[-1].axis("off") # set the axis off, this one is for the summary
     plot_age_vs_error(valid_loader, model, axs[0], lambda x, y: mse(x, y, reduction=None))
     plot_predicted_age_vs_error(valid_loader, model, axs[1], lambda x, y: mse(x, y, reduction=None), prob=True)
     plot_calibration(valid_loader, model, axs[2], lambda x, y: mse(x, y, reduction=None))
-    plot_summary(axs[23], {"MSE": total_mse, "WMSE": total_wmse, "MAE": total_mae})
+    plot_summary(axs[-1], summary)
     plt.tight_layout()
     plt.savefig(args.mdl + "Gaussian_Evaluation.jpg")
