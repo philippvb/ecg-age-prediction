@@ -68,7 +68,7 @@ def plot_predicted_age_vs_error(dataset:BatchDataloader, model:nn.Module, axs:Ax
 
 def plot_summary(axs, summary_dict:dict):
     textstr = "Summary\n"
-    textstr += "\n".join([f"{key}: {value}" for key, value in summary_dict.items()])
+    textstr += "\n".join([f"{key}: {value.item()}" if torch.is_tensor(value) else f"{key}: {value}" for key, value in summary_dict.items()])
     props = dict(boxstyle='round', facecolor='white', alpha=0.5)
     axs.text(0.05, 0.95, textstr, transform=axs.transAxes, fontsize=14,
         verticalalignment='top', bbox=props)
