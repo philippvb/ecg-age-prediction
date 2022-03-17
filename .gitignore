@@ -137,3 +137,4 @@ tests
 ignore
 token.txt
 .DS_STORE
+*.tar.gz
