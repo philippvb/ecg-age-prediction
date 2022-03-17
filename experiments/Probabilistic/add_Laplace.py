@@ -31,7 +31,7 @@ if __name__ == "__main__":
     config = os.path.join(args.mdl, 'args.json')
     with open(config, 'r') as f:
         config_dict = json.load(f)
-    print(config)
+    print(config_dict)
     # Get model
     N_LEADS = config_dict["n_leads"]
     model = ResNet1d(input_dim=(N_LEADS, config_dict['seq_length']),
@@ -42,6 +42,7 @@ if __name__ == "__main__":
     model.load(args.mdl)
     model = model.to(device)
 
+    
     print("Loading data")
     # Get traces
     # how much of our dataset we actually use, on a scale from 0 to 1
@@ -53,6 +54,8 @@ if __name__ == "__main__":
     train_loader.format_Laplace()
     valid_loader.format_Laplace()
 
+    summary = {}
+    summary["dataset size"] = valid_dataset_size
 
     print("Estimating Laplace model")
     # add Laplace
@@ -68,6 +71,7 @@ if __name__ == "__main__":
         neg_marglik.backward()
         hyper_optimizer.step()
     print("The estimated data noise (std deviation) is:", laplace_model.sigma_noise.item())
+    summary["Data noise"] = laplace_model.sigma_noise.item()
 
 
     with torch.no_grad():
@@ -76,7 +80,7 @@ if __name__ == "__main__":
         total_wmse = 0
         total_mae = 0
         for data, ages, weights in valid_loader:
-            prediction = model(data)
+            prediction = laplace_model(data)[0]
             total_mse += mse(ages, prediction).cpu()
             total_wmse += mse(ages, prediction, weights).cpu()
             total_mae += mae(ages, prediction).cpu()
@@ -87,6 +91,10 @@ if __name__ == "__main__":
         print(f"Sqrt of MSE on validation set is: {total_mse.sqrt()}")
         print(f"Weighted MSE on validation set is: {total_wmse}")
         print(f"MAE on validation set is: {total_mae}")
+        summary["MSE"] = total_mse
+        summary["WMSE"] = total_wmse
+        summary["MAE"] = total_mae        
+
         var = torch.tensor([0.0])
         for data, ages, _ in valid_loader:
             data = data.to(device)
@@ -94,6 +102,7 @@ if __name__ == "__main__":
             var += out_var.cpu().sum()
         var/= valid_dataset_size
         print("Mean std is:", var.sqrt().item())
+        summary["Mean std"] = var.sqrt()
 
         for noise in [0.1, 1, 10]:
             ood_var = torch.tensor([0.0])
@@ -104,6 +113,7 @@ if __name__ == "__main__":
                 ood_var += out_var.cpu().sum()
             ood_var/= valid_dataset_size
             print(f"Mean std with noise of {noise} is:", ood_var.sqrt().item())
+            summary[f"Mean std, noise {noise}"] = ood_var.sqrt()
 
         ood_var = torch.tensor([0.0])
         for data, ages, _ in valid_loader:
@@ -113,7 +123,8 @@ if __name__ == "__main__":
             ood_var += out_var.cpu().sum()
         ood_var/= valid_dataset_size
         print(f"Mean std for flipped is:", ood_var.sqrt().item())
-            
+        summary[f"Mean std, flipped {noise}"] = ood_var.sqrt()
+
     fig, axs = plt.subplots(2,2, figsize=(10, 10))
     axs = axs.flat
     for ax in axs[:-1]:
@@ -123,6 +134,6 @@ if __name__ == "__main__":
     plot_age_vs_error(valid_loader, laplace_model, axs[0], lambda x, y: mse(x, y, reduction=None))
     plot_predicted_age_vs_error(valid_loader, laplace_model, axs[1], lambda x, y: mse(x, y, reduction=None), prob=True)
     plot_calibration_laplace(valid_loader, laplace_model, axs[2], lambda x, y: mse(x, y, reduction=None))
-    plot_summary(axs[-1], {"MSE": total_mse, "WMSE": total_wmse, "MAE": total_mae})
+    plot_summary(axs[-1], summary)
     plt.tight_layout()
     plt.savefig(args.mdl + "Laplace_Evaluation.jpg")
