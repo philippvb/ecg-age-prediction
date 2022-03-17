@@ -30,7 +30,7 @@ if __name__ == "__main__":
     if args["bianca"]:
         train_loader, valid_loader = load_dset_swedish(args, use_weights=args["use_weights"])
     else:
-        train_loader, valid_loader = load_dset_brazilian(args, use_weights=args["use_weights"], map_to_swedish=True)
+        train_loader, valid_loader = load_dset_brazilian(args, use_weights=args["use_weights"], map_to_swedish=args["n_leads"]==8)
 
     # Get h5 data
     print(f"Training with {len(train_loader) * args['batch_size']} datapoints.")
@@ -59,7 +59,7 @@ if __name__ == "__main__":
     tqdm.write("Training...")
     start_epoch = 0
     best_loss = np.Inf
-    history = pd.DataFrame(columns=['epoch', 'train_loss', 'valid_loss', 'lr',
+    history = pd.DataFrame(columns=['epoch', 'train_loss', 'valid_weighted_mse', 'lr',
                                     'weighted_rmse', 'weighted_mae', 'rmse', 'mse'])
     for ep in range(start_epoch, args["epochs"]):
         # compute train loss and metrics
