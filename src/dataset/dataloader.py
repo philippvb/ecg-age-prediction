@@ -29,7 +29,6 @@ def load_dset_brazilian(args, use_weights=True, map_to_swedish=False, device="cp
     """
     # Get age data in csv
     df = pd.read_csv(args["path_to_csv"], index_col=args["ids_col"])
-    ages = df[args["age_col"]]
 
     # get traces
     f = h5py.File(args["path_to_traces"], 'r')
@@ -38,17 +37,18 @@ def load_dset_brazilian(args, use_weights=True, map_to_swedish=False, device="cp
     # define the mapping
     mapping = map_brazilian_to_swedish if map_to_swedish else None
     
-    # check dimensions
-    if len(ages) != len(traces):
-        print("Warning: Length between ages and traces doesn't seem to match")
-        if len(ages) < len(traces):
-            raise ValueError("Ages csv contains less datapoints than traces")
 
     # if we have ids in dset, check that indexes match
     if args["ids_dset"]:
         h5ids = f[args["ids_dset"]]
         df = df.reindex(h5ids, fill_value=False, copy=True)
 
+    ages = df[args["age_col"]]
+    # check dimensions
+    if len(ages) != len(traces):
+        print("Warning: Length between ages and traces doesn't seem to match")
+        if len(ages) < len(traces):
+            raise ValueError("Ages csv contains less datapoints than traces")
     
     # Train/ val split
     total_length = len(traces)
