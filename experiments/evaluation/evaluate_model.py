@@ -28,7 +28,7 @@ if __name__ == "__main__":
     # Check for unknown options
     if unk:
         warn("Unknown arguments:" + str(unk) + ".")
-    device = torch.device('cuda:3' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
     # Get config
     config = os.path.join(args.mdl, 'args.json')
     with open(config, 'r') as f:
@@ -62,8 +62,6 @@ if __name__ == "__main__":
         total_mae = 0
         total_wmse = 0
         for data, ages, weights in valid_loader:
-            data = data.to(device)
-            ages = ages.to(device)
             prediction = model(data)
             total_mse += mse(ages, prediction).cpu()
             total_wmse += mse(ages, prediction, weights).cpu()
@@ -79,12 +77,24 @@ if __name__ == "__main__":
         print(f"MAE on validation set is: {total_mae}")
 
     fig, axs = plt.subplots(2, 2, figsize=(10, 10))
+    fig.suptitle("Evaluation of standard model")
     axs = axs.flat
-    for ax in axs:
+    for ax in axs[:-1]:
         ax.set_axisbelow(True) # set grid to below
         ax.grid(alpha=0.3)
+    axs[-1].axis("off") # set the axis off, this one is for the summary
+    summary = {
+                "Dataset": "swedish" if config_dict["bianca"] else "brazilian",
+                "Validation set size": valid_dataset_size,
+                "MSE": total_mse, 
+                "Sqrt of MSE": total_mse.sqrt(),
+                "Weighted MSE": total_wmse,
+                "MAE": total_mae
+                }
+    # plot_multiple([plot_age_vs_error], valid_loader, model, axs[2], lambda x, y: mse(x, y, reduction=None), prob=False)
     plot_age_vs_error(valid_loader, model, axs[0], lambda x, y: mse(x, y, reduction=None), prob=False)
     plot_predicted_age_vs_error(valid_loader, model, axs[1], lambda x, y: mse(x, y, reduction=None), prob=False)
-    plot_summary(axs[2], {"MSE": total_mse, "WMSE": total_wmse, "MAE": total_mae})
+    plot_age_vs_predicted(valid_loader, model, axs[2], lambda x, y: mse(x, y, reduction=None), prob=False)
+    plot_summary(axs[-1], summary)
     plt.tight_layout()
     plt.savefig(args.mdl + "Standard_Evaluation.jpg")
